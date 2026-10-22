@@ -24,12 +24,15 @@ ministack-up:
 ministack-down:
 	docker rm -f ministack
 
-# MiniStack, Trino and legacy Spark containers for the compatibility suites (run make ministack-down first).
+# MiniStack, Trino and legacy Spark containers for the compatibility suites; replaces the ministack-up container.
 compat-up:
+	-docker rm -f ministack >/dev/null 2>&1
 	mkdir -m 0777 -p /tmp/gluecat-compat && $(COMPOSE) up -d --wait
 
+# Stops them and empties /tmp/gluecat-compat as root (the containers write there as other users).
 compat-down:
 	$(COMPOSE) down
+	docker run --rm --user 0 --entrypoint sh -v /tmp/gluecat-compat:/w $(MINISTACK_IMAGE) -c 'rm -rf /w/*'
 
 compat:
 	TRINO_URL=jdbc:trino://localhost:8080 LEGACY_SPARK_CONTAINER=legacy-spark \

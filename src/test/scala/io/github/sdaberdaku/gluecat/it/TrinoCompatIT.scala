@@ -36,7 +36,7 @@ abstract class TrinoCompatIT(mode: Mode) extends SparkIT(mode) {
     needsTrino()
     spark.sql(s"CREATE TABLE ${tbl("db", "t")} (id INT, name STRING) USING delta LOCATION '$dir/t'")
     spark.sql(s"INSERT INTO ${tbl("db", "t")} VALUES (1, 'a'), (2, 'b'), (3, 'c')")
-    assert(trino("SELECT id, name FROM delta.db.t ORDER BY id") == Seq(Seq("1", "a"), Seq("2", "b"), Seq("3", "c")))
+    assert(trino("SELECT * FROM delta.db.t ORDER BY id") == Seq(Seq("1", "a"), Seq("2", "b"), Seq("3", "c")))
     assert(trino("SHOW TABLES FROM delta.db").map(_.head).contains("t"))
     assert(trino("DESCRIBE delta.db.t").map(_.take(2)) == Seq(Seq("id", "integer"), Seq("name", "varchar")))
   }
@@ -59,9 +59,11 @@ abstract class TrinoCompatIT(mode: Mode) extends SparkIT(mode) {
     trino(s"CREATE TABLE delta.db.from_trino WITH (location = '$dir/from_trino') AS " +
       "SELECT * FROM (VALUES (1, CAST('a' AS varchar)), (2, CAST('b' AS varchar))) AS v (id, name)")
     val t = tbl("db", "from_trino")
-    assert(spark.sql(s"SELECT id, name FROM $t ORDER BY id").collect().map(r => (r.getInt(0), r.getString(1))).toSeq ==
-      Seq((1, "a"), (2, "b")))
-    assert(spark.sql(s"DESCRIBE $t").collect().map(_.getString(0)).take(2).toSeq == Seq("id", "name"))
+    val version = glue.getTable("db", "from_trino").versionId()
+    assert(spark.sql(s"SELECT * FROM $t ORDER BY id").collect().map(_.toSeq).toSeq == Seq(Seq(1, "a"), Seq(2, "b")))
+    assert(spark.sql(s"DESCRIBE $t").collect().map(_.getString(0)).takeWhile(c => c.nonEmpty && !c.startsWith("#"))
+      .toSeq == Seq("id", "name"))
+    assert(glue.getTable("db", "from_trino").versionId() == version, "loading changed the entry")
   }
 }
 

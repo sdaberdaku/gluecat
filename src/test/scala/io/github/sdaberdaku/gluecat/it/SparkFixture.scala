@@ -31,7 +31,7 @@ abstract class SparkIT(mode: Mode) extends AnyFunSuite with BeforeAndAfterAll {
 
   /** A new empty directory under /tmp/gluecat-compat, which the compatibility containers (docker/docker-compose.yml)
     * mount at the same path; world-writable because they run as other users. Not deleted afterwards: the containers
-    * write files there that this JVM cannot remove. */
+    * write files there that this JVM cannot remove (make compat-down empties /tmp/gluecat-compat). */
   def compatDir(): String = {
     val dir = Files.createTempDirectory(Paths.get("/tmp/gluecat-compat"), getClass.getSimpleName)
     "file:" + Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwxrwxrwx")).toAbsolutePath

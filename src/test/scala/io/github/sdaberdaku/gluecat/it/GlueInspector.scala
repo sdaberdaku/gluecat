@@ -24,6 +24,8 @@ final class GlueInspector(accountKey: String) extends AutoCloseable {
   def listTableNames(db: String): Seq[String] =
     client.getTables(GetTablesRequest.builder().databaseName(db).build()).tableList().asScala.map(_.name()).toList
 
+  def getDatabase(db: String): Database = client.getDatabase(GetDatabaseRequest.builder().name(db).build()).database()
+
   def listDatabaseNames(): Seq[String] =
     client.getDatabases(GetDatabasesRequest.builder().build()).databaseList().asScala.map(_.name()).toList
 

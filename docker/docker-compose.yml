@@ -1,6 +1,7 @@
 # Containers for the compatibility suites (TrinoCompat*IT, LegacyHiveGlueCompat*IT): make compat-up / compat-down.
 # /tmp/gluecat-compat must exist with mode 0777 before `up`: the tests write table data there and both readers see it
-# at the same path. The ministack service replaces the standalone MiniStack container on port 4566.
+# at the same path (make compat-down empties it). The ministack service replaces the standalone MiniStack container
+# on port 4566.
 services:
   ministack:
     image: ministackorg/ministack:1.5.31
@@ -30,6 +31,10 @@ services:
     extra_hosts:
       - "glue.eu-central-1.proxy:127.0.0.1"
     command: ["sh", "-c", "python3 -I /opt/glue-defaults-proxy.py & exec sleep infinity"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 4566), 2)"]
+      interval: 2s
+      retries: 15
     environment:
       AWS_ACCESS_KEY_ID: "111111111111"
       AWS_SECRET_ACCESS_KEY: test

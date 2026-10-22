@@ -61,6 +61,7 @@ jobs:
   compat:
     needs: plan
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -72,4 +73,6 @@ jobs:
       - env:
           TRINO_URL: jdbc:trino://localhost:8080
           LEGACY_SPARK_CONTAINER: legacy-spark
-        run: ./mvnw -B -ntp -pl modules/spark-4.1_2.13 -Dit.test='TrinoCompat*IT,LegacyHiveGlueCompat*IT' verify
+        run: >-
+          ./mvnw -B -ntp -pl modules/spark-4.1_2.13 -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
+          -Dit.test='TrinoCompat*IT,LegacyHiveGlueCompat*IT' verify
