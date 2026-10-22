@@ -11,7 +11,7 @@ reads other data-source tables, without the Hive metastore client. Works as a na
 - `docs/superpowers/plans/` holds implementation plans with pinned versions, signatures and tests. When code proves a
   plan wrong, update the plan, then the code.
 - `docs/logo/`: `gluecat-transparent.png` (README header), `gluecat-banner.jpg` (full scene), `gluecat-social.png`
-  (GitHub social preview), `gluecat-icon.png` (avatar).
+  (GitHub social preview; `gluecat-social.jpg` is the same image under GitHub's 1 MB upload limit), `gluecat-icon.png` (avatar).
 
 ## Layout
 
