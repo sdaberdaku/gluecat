@@ -23,11 +23,20 @@ reads other data-source tables, without the Hive metastore client. Works as a na
 
 ## Commands
 
-- Glue/STS/IAM emulator for tests: `docker run -d --rm --name ministack -p 4566:4566 ministackorg/ministack:<pinned version>`
+- `make` wraps the common commands; `MODULE` (default `spark-4.1_2.13`) picks the module and `JAVA_HOME` is used as set:
+  `make test`, `make verify`, `make package` (every module), `make ministack-up` / `make ministack-down`,
+  `make compat-up` / `make compat-down` / `make compat` (Trino and legacy Spark suites, `docker/docker-compose.yml`),
+  `make matrix` (full CI matrix on GitHub Actions for the current, pushed branch), `make clean`.
+- Glue/STS/IAM emulator for tests: `docker run -d --rm --name ministack -p 4566:4566 ministackorg/ministack:1.5.31`
+  (the version pinned in `ci.yml` and the Makefile)
 - Unit tests: `./mvnw -pl modules/spark-4.1_2.13 -DskipITs test`
 - Unit tests, jar and integration tests against the jar: `./mvnw -pl modules/spark-4.1_2.13 verify`
 - Other Spark lines: replace the module directory; override versions with `-Dspark.version=... -Ddelta.version=...`, and the Delta artifact with `-Ddelta.artifact=...` when it differs from the module default (Spark 4.0 and 4.1 modules default to `delta-spark_4.0_2.13` / `delta-spark_4.1_2.13`; use `delta-spark_2.13` for Delta 4.0.1 on 4.0 and 4.1.0 to 4.3.1 on 4.1).
-- JDK 17 builds every module; CI runs each module on every JDK its Spark line supports.
+- JDK 17 builds every module; CI runs each module on every JDK its Spark line supports. `ci.yml` runs every
+  `matrix.json` row on pushes to `main` and on dispatch with `full=true`, the smoke rows on pull requests.
+- Release: pushing a tag `vX.Y.Z` runs `release.yml` (full matrix, then one Central deployment of every module and
+  a GitHub Release). Local check without publishing: `./mvnw -Prelease -DskipTests -DskipITs -Dgpg.skip=true package`
+  (sources and scaladoc jars per module).
 
 ## Conventions
 

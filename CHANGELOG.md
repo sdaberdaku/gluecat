@@ -1,0 +1,21 @@
+# Changelog
+
+## 1.0.0 - unreleased
+
+First release.
+
+- Artifacts `io.github.sdaberdaku:gluecat-spark-<minor>_<scala>` for Spark 3.5 (Scala 2.12 and 2.13, Java 8
+  bytecode, Spark 3.5.3 and later) and Spark 4.0, 4.1 and 4.2 (Scala 2.13, Java 17 bytecode).
+- `io.github.sdaberdaku.gluecat.GlueCatalog`: one Glue Data Catalog per Spark catalog, with its own catalog ID
+  (`glue.id`) and credentials (custom provider class, STS assume role, or the SDK default chain including IRSA). Works
+  as a named catalog and as `spark_catalog`.
+- Delta tables: load, read, write and time travel by name through Delta's `DeltaCatalog`; `CREATE TABLE`, CTAS,
+  `REPLACE`, `saveAsTable`, `writeTo` and `writeStream.toTable` run on the table path, then write the Glue entry.
+  `ALTER TABLE` column changes and SQL `REFRESH TABLE` re-sync the Glue columns.
+- Other data source tables (Parquet, ORC, CSV, JSON, ...): load and read, create and alter the Glue entry.
+- Glue databases as Spark namespaces: create, alter, drop (with `CASCADE`), list, `USE`.
+- `RENAME` and `DROP` change the Glue entry only; data is never deleted and `PURGE` is refused.
+- Every Glue `UpdateTable` passes the `VersionId` it read; a concurrent change fails with a retryable error.
+- The catalog refuses to run while Delta's `UpdateCatalog` hook is enabled, because the hook writes through
+  `spark_catalog`.
+- AWS SDK for Java v2 (`glue`, `sts`) as a `provided` dependency, built and tested against 2.24.6.

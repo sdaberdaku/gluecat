@@ -270,6 +270,7 @@ The project has failed, even if it works, if it:
 - 2026-10-22: SDK relocation dropped (owner decision), see Constraints.
 - 2026-10-22: `REFRESH TABLE` and `ALTER TABLE` column changes re-sync the Glue columns of Delta tables (owner
   decision); always on, no option.
+- 2026-10-22: repository public before 1.0.0 (owner decision).
 
 ## Design
 
@@ -543,7 +544,8 @@ The full matrix is about 40 jobs; at roughly 5 minutes each that is about 200 ru
 and GitHub Free gives a private repository 2,000 minutes a month. So, while the repository is private,
 pull requests and pushes to `main` run a smoke matrix (the oldest and newest Spark/Delta/JDK combination
 of each artifact), and the full matrix runs on tags and on manual dispatch. Once the repository is
-public (Actions minutes are free for public repositories), pushes to `main` run the full matrix too.
+public (Actions minutes are free for public repositories), pushes to `main` run the full matrix too. Public since
+2026-10-22: pushes to `main` run the full matrix, pull requests the smoke rows.
 
 ## Release
 
@@ -554,7 +556,7 @@ public (Actions minutes are free for public repositories), pushes to `main` run 
 - The same jar is attached to a GitHub Release for the tag.
 - Documentation is published to GitHub Pages from `docs/site/` by `.github/workflows/pages.yml` on pushes to `main`
   (and on manual dispatch), never from a tag: the `github-pages` environment only accepts the default branch.
-- Flip the repository to public before tagging v1.0.0.
+- Flip the repository to public before tagging v1.0.0 (done 2026-10-22).
 
 ## Known limitations to document in the README
 
