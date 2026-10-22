@@ -14,6 +14,11 @@ final class UnsupportedTableException(val identifier: String, reason: String)
 final class MalformedEntryException(val identifier: String, reason: String)
     extends AnalysisException(s"$identifier: $reason")
 
+/** Spark's message omits the account, which is what tells two catalogs apart. */
+final class GlueNoSuchNamespaceException(where: Seq[String], glueId: String) extends NoSuchNamespaceException(where) {
+  override def getMessage: String = s"${super.getMessage} (glue.id=$glueId)"
+}
+
 final class GlueCatalogConcurrentModificationException(message: String, cause: Throwable)
     extends RuntimeException(message, cause)
 
@@ -36,10 +41,7 @@ object CatalogErrors {
     e match {
       case _: GlueEntityNotFound =>
         if (ident.isDefined) new NoSuchTableException(where)
-        else new NoSuchNamespaceException(where) {
-          // Spark's message omits the account, which is what tells two catalogs apart.
-          override def getMessage: String = s"${super.getMessage} (catalog $catalogName, glue.id=$glue)"
-        }
+        else new GlueNoSuchNamespaceException(where, glue)
       case _: GlueAlreadyExists =>
         if (ident.isDefined) new TableAlreadyExistsException(where)
         else new NamespaceAlreadyExistsException(where.toArray)
