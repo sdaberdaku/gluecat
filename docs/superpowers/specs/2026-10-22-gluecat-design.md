@@ -111,7 +111,7 @@ catalog when the session catalog is the built-in implementation or a `CatalogExt
 `CatalogManager.loadV2SessionCatalog` wires a delegate only into a `CatalogExtension` and returns any
 other plugin unchanged (`case other => other`, checked in 3.5.3, 3.5.9, 4.0.1, 4.1.2 and 4.2.0; there is
 no "must implement CatalogExtension" check). `GlueCatalog` must therefore never implement
-`CatalogExtension`. Spark's in-memory catalog stays in place only for temporary views and functions.
+`CatalogExtension`. Spark's in-memory catalog stays in place only for temporary views and functions. `CREATE VIEW` also goes to the in-memory catalog: there are no persistent views, nothing reaches Glue, and views vanish with the session.
 In this mode Delta's `UpdateCatalog` hook and Delta's `SessionCatalog` fallbacks hit the empty in-memory
 catalog, not Glue.
 
@@ -124,7 +124,7 @@ Spark resolves unqualified table names in the current namespace, which starts as
 `default` database unless someone creates one (the awslabs Hive client creates it at startup when it is
 missing). This catalog never writes on startup: `defaultNamespace()` returns `default`, or the value of
 the catalog option `default-namespace`, and if that database does not exist, unqualified names fail with
-a clear error naming the database and the `glue.id`. `USE <db>` must check existence through this
+a clear error naming the database and the `glue.id`. The option applies to named catalogs only: as `spark_catalog`, Spark takes the current namespace from its built-in session catalog (`default` until `USE`), never from `defaultNamespace()`, so the option has no effect. `USE <db>` must check existence through this
 catalog's `namespaceExists` in both modes. `default-namespace` must be a single-level name; that is
 checked in `initialize` without calling Glue, and existence is checked lazily on first use, so a
 catalog can be configured while Glue is unreachable.
@@ -166,7 +166,7 @@ one fails.
 |---|---|---|
 | list, exists, load | yes; load returns Delta's `DeltaTableV2` | yes; load returns a `V1Table` that Spark reads through its V1 path |
 | reads, time travel | Delta | Spark V1 read; only tables whose partitions are not tracked in Glue (Spark refuses those from a named catalog; as `spark_catalog` they would need the in-memory catalog to list partitions) |
-| INSERT, MERGE, UPDATE, DELETE, OPTIMIZE, VACUUM, DESCRIBE HISTORY by name | Delta, on the loaded table | not supported (Spark refuses writes to a `V1Table` from a non-session catalog) |
+| INSERT, MERGE, UPDATE, DELETE, OPTIMIZE, VACUUM, DESCRIBE HISTORY by name | Delta, on the loaded table | INSERT / INSERT OVERWRITE work through Spark's file path where Spark allows them; the Glue entry is not updated (no partition or statistics sync); MERGE, UPDATE, DELETE are Delta-only |
 | CREATE TABLE (external, with LOCATION) | yes | yes, metadata only |
 | CREATE TABLE (managed, no LOCATION) | yes, location derived (below) | yes, metadata only |
 | CTAS, `saveAsTable` | yes, with Delta's semantics | no |
@@ -204,7 +204,7 @@ catalog unchanged. See "Glue entry format".
   `_delta_log/N.json` on S3; that belongs to Delta's LogStore. Delta-Spark's default S3 LogStore is safe
   for one driver only; a conditional-write (`If-None-Match`) LogStore is in review upstream
   (delta-io/delta#7827).
-- Writing non-Delta tables, and reading non-Delta tables whose partitions are tracked in Glue.
+- Keeping Glue in sync for writes to non-Delta tables, and reading non-Delta tables whose partitions are tracked in Glue.
 - Iceberg (use Iceberg's `GlueCatalog`), Hudi, Hive SerDe tables, views, functions.
 - Migrating registrations from one Glue catalog to another (done with separate tooling).
 - Lake Formation, S3 credential vending, Spark 3.4 and older, Spark 3.5.0 to 3.5.2 (they reject a
@@ -559,7 +559,8 @@ public (Actions minutes are free for public repositories), pushes to `main` run 
 - Glue columns are synced at create, replace, `ALTER TABLE` column changes and `REFRESH TABLE`; not after schema evolution inside writes
   (`mergeSchema`, `MERGE ... WITH SCHEMA EVOLUTION`), which needs a `REFRESH TABLE`. `REFRESH TABLE` on a Delta
   table needs Glue write access.
-- Non-Delta tables are read-only, and only those whose partitions are not tracked in Glue.
+- Non-Delta tables: only those whose partitions are not tracked in Glue are readable; INSERT writes files but does not update the Glue entry; MERGE, UPDATE and DELETE are Delta-only.
+- Views and functions: named catalogs refuse them with Spark's `CATALOG_OPERATION` error; in `spark_catalog` mode they exist in Spark's in-memory catalog only.
 - DROP never deletes data; PURGE is not supported. This differs from Spark's managed-table semantics:
   dropped managed tables leave their directories under `<warehouse>/<db>.db/` or the database location,
   and repeated create/drop cycles (test suites, scratch CTAS) accumulate unreferenced data there that
