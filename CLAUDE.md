@@ -1,0 +1,56 @@
+# gluecat
+
+AWS Glue Data Catalog client for Apache Spark: a Spark catalog plugin (`io.github.sdaberdaku.gluecat.GlueCatalog`)
+that gives each named Spark catalog its own Glue catalog ID and IAM role, loads and creates Delta tables there, and
+reads other data-source tables, without the Hive metastore client. Works as a named catalog and as `spark_catalog`.
+
+## Documents
+
+- `docs/superpowers/specs/` holds the design. Its "Decided", "Anti-goals" and "Glue entry format" sections are binding;
+  change the design before changing behaviour they cover.
+- `docs/superpowers/plans/` holds implementation plans with pinned versions, signatures and tests. When code proves a
+  plan wrong, update the plan, then the code.
+- `docs/logo/`: `gluecat-transparent.png` (README header), `gluecat-banner.jpg` (full scene), `gluecat-social.png`
+  (GitHub social preview), `gluecat-icon.png` (avatar).
+
+## Layout
+
+- Shared Scala sources in `src/main/scala` and `src/test/scala`, compiled once per artifact.
+- One Maven module per artifact under `modules/spark-<minor>_<scala>/` (Spark 3.5 on Scala 2.12 and 2.13, Spark
+  4.x on 2.13). Each module pins its Spark, Delta and Scala versions as properties; CI overrides them per matrix row.
+- `matrix.json` is the single source of the Spark × Delta × JDK test matrix.
+- The AWS SDK v2 is relocated inside the shaded jar under `io.github.sdaberdaku.gluecat.shaded.awssdk`; the published
+  POM declares no SDK dependency.
+
+## Commands
+
+- Glue/STS/IAM emulator for tests: `docker run -d --rm --name ministack -p 4566:4566 ministackorg/ministack:<pinned version>`
+- Unit tests: `./mvnw -pl modules/spark-4.1_2.13 -DskipITs test`
+- Unit tests, shaded jar and integration tests against the jar: `./mvnw -pl modules/spark-4.1_2.13 verify`
+- Other Spark lines: replace the module directory; override versions with `-Dspark.version=... -Ddelta.version=...`.
+- JDK 17 builds every module; CI runs each module on every JDK its Spark line supports.
+
+## Conventions
+
+- Unit tests are `*Suite` classes (surefire, run against `target/classes`); integration tests are `*IT` classes
+  (failsafe, run against the shaded jar). Integration tests never pass `software.amazon.awssdk.*` objects into the
+  library and never implement its SDK-typed signatures, because the SDK inside the jar is relocated; they use the
+  library's option-based factories or their own SDK client straight against the emulator.
+- Never reference Spark's `private[sql]` objects (`CatalogV2Util`, `V1Table`, `IdentityTransform`); use reflection
+  bridges and the public `Transform` / `Expressions` APIs.
+- Delta creates and replaces run with path identifiers (``delta.`<location>` ``), never with a catalog identifier,
+  and never by naming anything `io.unitycatalog.*`.
+- Database and table names are lowercased in both directions; every Glue `UpdateTable` passes the `VersionId` read
+  before the change; DROP never deletes data.
+- Code and tests must compile for Scala 2.12 and 2.13 and for Java 8 (`scala.collection.JavaConverters`, no Java 9+
+  APIs in shared code).
+
+## Rules
+
+- Public project: generic names only in code, docs, tests, fixtures and commit messages (`acct_a`, `111111111111`,
+  `s3://bucket-a/...`). No real account IDs, bucket names or organisation names.
+- Plain commit messages, no AI attribution lines.
+- Artifact names, configuration keys and the Glue entry format are public API from 1.0.0; changing any of them is a
+  design change first.
+- A Maven Central release cannot be deleted or replaced: the full CI matrix must be green on the tagged commit.
+- Show drafts of user-facing text (README, release notes) before pushing.
