@@ -111,7 +111,8 @@ catalog when the session catalog is the built-in implementation or a `CatalogExt
 `CatalogManager.loadV2SessionCatalog` wires a delegate only into a `CatalogExtension` and returns any
 other plugin unchanged (`case other => other`, checked in 3.5.3, 3.5.9, 4.0.1, 4.1.2 and 4.2.0; there is
 no "must implement CatalogExtension" check). `GlueCatalog` must therefore never implement
-`CatalogExtension`. Spark's in-memory catalog stays in place only for temporary views and functions. `CREATE VIEW` also goes to the in-memory catalog: there are no persistent views, nothing reaches Glue, and views vanish with the session.
+`CatalogExtension`. Spark's in-memory catalog stays in place for temporary views and functions; `CREATE VIEW` in this mode
+also lands there, so such views are application-scoped (the in-memory catalog lives in `SharedState`) and never reach Glue.
 In this mode Delta's `UpdateCatalog` hook and Delta's `SessionCatalog` fallbacks hit the empty in-memory
 catalog, not Glue.
 
@@ -507,7 +508,7 @@ Then:
 - Unit tests for the core catalog against the in-memory Glue implementation, and contract tests for
   `GlueCatalog` against Spark's documented `TableCatalog` / `SupportsNamespaces` behaviour.
 - One integration test per row of the operations table, for Delta and for Parquet, including the
-  failure rows (PURGE, writes to Parquet, partition-tracked Parquet, Iceberg, views, Hive SerDe tables).
+  failure rows (PURGE, partition-tracked Parquet, Iceberg, views, Hive SerDe tables).
 - Two catalogs on two MiniStack accounts through `AssumeRole`, both holding the same `db.table`, to show
   they stay separate. A library-level request observer records every Glue request (operation,
   `CatalogId`), and the isolation tests assert that no request carried a `CatalogId` other than the
@@ -529,7 +530,7 @@ Then:
 - Spark 3.5 with the Glue Hive client (SDK v1, patched Hive) on the same MiniStack Glue reads gluecat's
   Delta tables by name, and gluecat loads by name the Delta and Parquet tables that client created.
 - Both catalog modes (named catalog and `spark_catalog`) for every integration test, plus the default
-  namespace cases: missing `default` gives the clear error, `default-namespace` and `USE <db>` work.
+  namespace cases: missing `default` gives the clear error, `default-namespace` works for named catalogs, and `USE <db>` works in both modes.
 
 CI matrix: every artifact in the table above (Spark minor and Scala version, latest patch of each Spark
 minor, plus 3.5.3 as the 3.5 floor), crossed with every Delta release line that supports that Spark
