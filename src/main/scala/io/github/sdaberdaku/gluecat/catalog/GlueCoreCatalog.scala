@@ -134,6 +134,14 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
   override def loadTable(ident: Identifier): Table =
     V1TableBridge.wrap(EntryConverter.toCatalogTable(catalogName, loadEntry(ident).getOrElse(throw missing(normalize(ident)))))
 
+  // Delta's own time travel loads the plain table first, so these are reached for non-Delta tables only.
+  private def noTimeTravel(ident: Identifier): Table = {
+    loadTable(ident) // a missing table still reports NoSuchTableException
+    throw new UnsupportedOperationException("Time travel is supported for Delta tables only")
+  }
+  override def loadTable(ident: Identifier, version: String): Table = noTimeTravel(ident)
+  override def loadTable(ident: Identifier, timestamp: Long): Table = noTimeTravel(ident)
+
   def resolveLocation(ident: Identifier, spec: TableSpec): String = spec.location.getOrElse {
     val n = normalize(ident)
     val db = single(n.namespace)

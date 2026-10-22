@@ -27,6 +27,15 @@ final class GlueInspector(accountKey: String) extends AutoCloseable {
   def listDatabaseNames(): Seq[String] =
     client.getDatabases(GetDatabasesRequest.builder().build()).databaseList().asScala.map(_.name()).toList
 
+  /** Sets one table parameter straight in Glue, as another engine would. */
+  def setParameter(db: String, t: String, key: String, value: String): Unit = {
+    val old = getTable(db, t)
+    val input = TableInput.builder().name(old.name()).description(old.description()).owner(old.owner())
+      .tableType(old.tableType()).storageDescriptor(old.storageDescriptor()).partitionKeys(old.partitionKeys())
+      .parameters((old.parameters().asScala + (key -> value)).asJava).build()
+    client.updateTable(UpdateTableRequest.builder().databaseName(db).tableInput(input).build())
+  }
+
   def createRawTable(db: String, input: TableInput): Unit =
     client.createTable(CreateTableRequest.builder().databaseName(db).tableInput(input).build())
 

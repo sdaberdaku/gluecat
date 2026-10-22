@@ -84,7 +84,7 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
     if (!isDeltaEntry(entry)) throw new UnsupportedOperationException(s"${qualified(ident)} is not a Delta table")
     val location = EntryConverter.location(entry)
       .getOrElse(throw new MalformedEntryException(qualified(ident), "no table location"))
-    if (spec.location.exists(l => new Path(l).toUri != new Path(location).toUri)) {
+    if (spec.location.exists(l => !DeltaFormatSupport.sameLocation(l, location))) {
       throw new IllegalArgumentException(
         s"${qualified(ident)} is at $location; REPLACE cannot move it to ${spec.location.get}")
     }
@@ -178,7 +178,15 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
       case s: TableChange.SetProperty => s.property == "location"
       case _ => false
     }
-    if (location.nonEmpty) core.alterTable(ident, location: _*)
+    if (location.nonEmpty) {
+      val target = location.head.asInstanceOf[TableChange.SetProperty].value
+      val dir = new Path(target)
+      if (!dir.getFileSystem(SparkSession.active.sessionState.newHadoopConf()).exists(new Path(dir, "_delta_log"))) {
+        throw new IllegalArgumentException(s"${qualified(ident)}: $target holds no Delta table (no _delta_log directory)")
+      }
+      core.alterTable(ident, location: _*)
+      syncSchema(ident) // the columns now come from the log at the new location
+    }
     if (rest.nonEmpty) {
       delta.alterTable(ident, rest: _*)
       if (rest.exists(_.isInstanceOf[TableChange.ColumnChange])) {
@@ -213,6 +221,17 @@ object DeltaFormatSupport {
   // The loader Spark itself uses for catalog plugins.
   private def loader: ClassLoader =
     Option(Thread.currentThread.getContextClassLoader).getOrElse(getClass.getClassLoader)
+
+  /** Same table location: `s3`, `s3a` and `s3n` are one scheme, a trailing slash does not matter. */
+  private[format] def sameLocation(a: String, b: String): Boolean = {
+    def norm(l: String) = {
+      val u = new Path(l).toUri
+      if (u.getScheme != null && u.getScheme.toLowerCase(java.util.Locale.ROOT).matches("s3[an]?")) {
+        new java.net.URI("s3", u.getAuthority, u.getPath, null, null)
+      } else u
+    }
+    norm(a) == norm(b)
+  }
 
   def deltaCatalogClass(): Class[_] = Class.forName(DeltaCatalogClass, true, loader)
 
