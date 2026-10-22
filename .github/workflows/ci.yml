@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Run the full Spark x Delta x JDK matrix instead of the smoke subset
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      full:
+        description: Run the full Spark x Delta x JDK matrix instead of the smoke subset
+        type: boolean
+        default: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: select
+        # inputs.full is only set on workflow_dispatch and workflow_call; push and pull_request run the smoke rows.
+        # github.event_name cannot tell a workflow_call apart: in a called workflow it is the caller's event.
+        run: echo "matrix=$(jq -c '[.[] | select(${{ inputs.full && 'true' || '.smoke' }})]' matrix.json)" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: plan
+    name: ${{ matrix.module }} spark-${{ matrix.spark }} delta-${{ matrix.delta }} jdk-${{ matrix.jdk }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.plan.outputs.matrix) }}
+    services:
+      ministack:
+        image: ministackorg/ministack:1.5.31
+        ports:
+          - "4566:4566"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.jdk }}
+          cache: maven
+      - run: ./mvnw -B -ntp -pl modules/${{ matrix.module }} -Dspark.version=${{ matrix.spark }} -Ddelta.version=${{ matrix.delta }} verify
