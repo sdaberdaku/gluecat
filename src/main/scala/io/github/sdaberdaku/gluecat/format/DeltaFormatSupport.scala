@@ -27,7 +27,7 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
   private val delta: DelegatingCatalogExtension = {
     val d = DeltaFormatSupport.deltaCatalogClass().getDeclaredConstructor().newInstance()
       .asInstanceOf[DelegatingCatalogExtension]
-    d.setDelegateCatalog(core)
+    d.setDelegateCatalog(new SchemalessDeltaView(core))
     d.initialize(catalogName, sparkOptions)
     d
   }
@@ -173,7 +173,8 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
     if (isPath(ident)) return delta.alterTable(ident, changes: _*)
     val entry = core.loadEntry(ident).getOrElse(throw core.missing(core.normalize(ident)))
     if (!isDeltaEntry(entry)) return core.alterTable(ident, changes: _*)
-    // Delta's SET LOCATION writes through spark_catalog, so the location goes to the Glue entry only.
+    // Delta's SET LOCATION writes through spark_catalog, so the location goes to the Glue entry only, in one update
+    // together with the columns of the log at the new location.
     val (location, rest) = changes.partition {
       case s: TableChange.SetProperty => s.property == "location"
       case _ => false
@@ -184,8 +185,11 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
       if (!dir.getFileSystem(SparkSession.active.sessionState.newHadoopConf()).exists(new Path(dir, "_delta_log"))) {
         throw new IllegalArgumentException(s"${qualified(ident)}: $target holds no Delta table (no _delta_log directory)")
       }
-      core.alterTable(ident, location: _*)
-      syncSchema(ident) // the columns now come from the log at the new location
+      val moved = delta.loadTable(pathIdentifier(target))
+      val current = EntryConverter.toCatalogTable(catalogName, entry)
+      core.replaceTable(ident, current.copy(
+        storage = current.storage.copy(locationUri = Some(CatalogUtils.stringToURI(target))),
+        schema = moved.schema(), partitionColumnNames = TableProperties.partitionColumns(moved.partitioning())))
     }
     if (rest.nonEmpty) {
       delta.alterTable(ident, rest: _*)
@@ -250,4 +254,44 @@ private final class StagedGlueTable(staged: StagedTable, afterCommit: () => Unit
     staged.asInstanceOf[SupportsWrite].newWriteBuilder(info)
   override def commitStagedChanges(): Unit = { staged.commitStagedChanges(); afterCommit() }
   override def abortStagedChanges(): Unit = staged.abortStagedChanges()
+}
+
+/** What Delta sees of the core: Delta entries carry an empty schema and no partition columns, as in Delta's own
+  * metastore entries, so Delta reads them from its log. Spark 3.5 passes a non-empty catalog schema to Delta's
+  * streaming source, which Delta 3.3 rejects. Everything else forwards to the core. */
+private final class SchemalessDeltaView(core: GlueCoreCatalog) extends TableCatalog with SupportsNamespaces {
+  override def name(): String = core.name()
+  override def initialize(name: String, options: CaseInsensitiveStringMap): Unit = ()
+  override def defaultNamespace(): Array[String] = core.defaultNamespace()
+
+  private def view(table: Table): Table = V1TableBridge.unwrap(table) match {
+    case Some(t) if t.provider.exists(_.equalsIgnoreCase("delta")) =>
+      V1TableBridge.wrap(t.copy(schema = new StructType(), partitionColumnNames = Nil))
+    case _ => table
+  }
+
+  override def loadTable(ident: Identifier): Table = view(core.loadTable(ident))
+  override def loadTable(ident: Identifier, version: String): Table = view(core.loadTable(ident, version))
+  override def loadTable(ident: Identifier, timestamp: Long): Table = view(core.loadTable(ident, timestamp))
+  override def tableExists(ident: Identifier): Boolean = core.tableExists(ident)
+  override def listTables(namespace: Array[String]): Array[Identifier] = core.listTables(namespace)
+  override def createTable(ident: Identifier, schema: StructType, partitions: Array[Transform],
+      properties: java.util.Map[String, String]): Table = view(core.createTable(ident, schema, partitions, properties))
+  override def alterTable(ident: Identifier, changes: TableChange*): Table = view(core.alterTable(ident, changes: _*))
+  override def dropTable(ident: Identifier): Boolean = core.dropTable(ident)
+  override def purgeTable(ident: Identifier): Boolean = core.purgeTable(ident)
+  override def renameTable(oldIdent: Identifier, newIdent: Identifier): Unit = core.renameTable(oldIdent, newIdent)
+  override def invalidateTable(ident: Identifier): Unit = core.invalidateTable(ident)
+
+  override def listNamespaces(): Array[Array[String]] = core.listNamespaces()
+  override def listNamespaces(namespace: Array[String]): Array[Array[String]] = core.listNamespaces(namespace)
+  override def namespaceExists(namespace: Array[String]): Boolean = core.namespaceExists(namespace)
+  override def loadNamespaceMetadata(namespace: Array[String]): java.util.Map[String, String] =
+    core.loadNamespaceMetadata(namespace)
+  override def createNamespace(namespace: Array[String], metadata: java.util.Map[String, String]): Unit =
+    core.createNamespace(namespace, metadata)
+  override def alterNamespace(namespace: Array[String], changes: NamespaceChange*): Unit =
+    core.alterNamespace(namespace, changes: _*)
+  override def dropNamespace(namespace: Array[String], cascade: Boolean): Boolean =
+    core.dropNamespace(namespace, cascade)
 }

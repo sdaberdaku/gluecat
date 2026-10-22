@@ -7,7 +7,6 @@ import java.nio.file.{Files, Paths}
 import scala.collection.JavaConverters._
 
 import io.delta.tables.DeltaTable
-import org.apache.spark.SPARK_VERSION
 import org.apache.spark.sql.functions.{col, lit}
 import org.apache.spark.sql.streaming.Trigger
 import org.apache.spark.sql.types.{IntegerType, StringType, StructType}
@@ -102,16 +101,18 @@ abstract class DeltaOperationsIT(mode: Mode) extends SparkIT(mode) {
     spark.sql(s"DELETE FROM $t WHERE id = 3")
     assert(spark.sql(s"SELECT name FROM $t WHERE id = 2").head.getString(0) == "B")
     assert(ids("ops") == Seq(1, 2))
-    spark.sql(s"OPTIMIZE $t")
-    spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", "false")
-    try spark.sql(s"VACUUM $t RETAIN 0 HOURS") finally spark.conf.unset("spark.databricks.delta.retentionDurationCheck.enabled")
+    // time travel first: VACUUM RETAIN 0 removes the files of the old versions
     val history = spark.sql(s"DESCRIBE HISTORY $t")
     assert(history.count() >= 2)
     // version 0 is the CREATE TABLE (empty), version 1 the INSERT
-    assert(spark.sql(s"SELECT * FROM $t VERSION AS OF 0").count() == 0)
-    assert(spark.sql(s"SELECT * FROM $t VERSION AS OF 1").count() == 3)
+    assert(spark.sql(s"SELECT * FROM $t VERSION AS OF 0").collect().isEmpty)
+    assert(spark.sql(s"SELECT id FROM $t VERSION AS OF 1 ORDER BY id").collect().map(_.getInt(0)).toSeq == Seq(1, 2, 3))
     val ts = history.where("version = 1").select("timestamp").head.getTimestamp(0)
-    assert(spark.sql(s"SELECT * FROM $t TIMESTAMP AS OF '$ts'").count() == 3)
+    assert(spark.sql(s"SELECT id FROM $t TIMESTAMP AS OF '$ts' ORDER BY id").collect().map(_.getInt(0)).toSeq == Seq(1, 2, 3))
+    spark.sql(s"OPTIMIZE $t")
+    spark.conf.set("spark.databricks.delta.retentionDurationCheck.enabled", "false")
+    try spark.sql(s"VACUUM $t RETAIN 0 HOURS") finally spark.conf.unset("spark.databricks.delta.retentionDurationCheck.enabled")
+    assert(ids("ops") == Seq(1, 2))
     assert(version("ops") == before) // none of this touches Glue
   }
 
@@ -152,15 +153,14 @@ abstract class DeltaOperationsIT(mode: Mode) extends SparkIT(mode) {
     assert(spark.sql(s"SELECT extra FROM ${tbl("db", "r")}").count() == 0)
   }
 
-  // Spark 4.1's Catalog.refreshTable only drops the session's caches and never calls TableCatalog.invalidateTable,
-  // so only the SQL statement re-syncs. The README promises REFRESH TABLE only.
+  // Catalog.refreshTable calls invalidateTable for a DataSourceV2Relation, but a Delta read analyses to a
+  // LogicalRelation, which takes the session-catalog branch, on both Spark lines. For Delta tables use SQL REFRESH TABLE.
   test("spark.catalog.refreshTable does not re-sync the Glue columns") {
     val loc = create("r2", "id INT")
     spark.read.format("delta").load(loc).withColumn("extra", lit("x")).write.format("delta")
       .option("mergeSchema", "true").mode("append").save(loc)
     assert(columns("r2") == Seq("id"))
     spark.catalog.refreshTable(tbl("db", "r2"))
-    info(s"synced=${columns("r2")}")
     assert(columns("r2") == Seq("id"))
   }
 
@@ -173,7 +173,7 @@ abstract class DeltaOperationsIT(mode: Mode) extends SparkIT(mode) {
     spark.sql(s"ALTER TABLE $t SET LOCATION '$other'")
     assert(path(location("mv")) == path(other))
     assert(columns("mv") == Seq("id", "other"))
-    assert(version("mv") > before)
+    assert(version("mv") == before + 1) // one Glue update for location and columns
     assert(spark.sql(s"SELECT other FROM $t").count() == 0)
     if (mode == Named) assert(!spark.sessionState.catalog.tableExists(TableIdentifier("mv", Some("db"))))
   }
@@ -205,7 +205,8 @@ abstract class DeltaOperationsIT(mode: Mode) extends SparkIT(mode) {
     assert(!glue.listTableNames("db").contains("dr"))
     assert(hasDeltaLog(loc))
     val loc2 = create("dr2")
-    intercept[Exception](spark.sql(s"DROP TABLE ${tbl("db", "dr2")} PURGE"))
+    val purge = intercept[Exception](spark.sql(s"DROP TABLE ${tbl("db", "dr2")} PURGE"))
+    assert(fullMessage(purge).contains("PURGE"))
     assert(glue.listTableNames("db").contains("dr2"))
     assert(hasDeltaLog(loc2))
   }
@@ -293,18 +294,11 @@ abstract class DeltaOperationsIT(mode: Mode) extends SparkIT(mode) {
     assert(glue.listTableNames("db").contains("stream"))
     assert(columns("stream") == Seq("id", "name"))
     assert(ids("stream") == Seq(1, 2))
-    val readStream = spark.readStream.table(t).writeStream.format("memory").queryName(s"stream_sink_$cat")
-    if (SPARK_VERSION.startsWith("3.5")) {
-      // Delta 3.3 rejects the table schema that Spark 3.5 passes to its streaming source for a non-session catalog.
-      val e = intercept[Exception](readStream.start().processAllAvailable())
-      assert(fullMessage(e).contains("DELTA_UNSUPPORTED_SCHEMA_DURING_READ"))
-    } else {
-      val read = readStream.start()
-      try {
-        read.processAllAvailable()
-        assert(spark.table(s"stream_sink_$cat").count() == 2)
-      } finally read.stop()
-    }
+    val read = spark.readStream.table(t).writeStream.format("memory").queryName(s"stream_sink_$cat").start()
+    try {
+      read.processAllAvailable()
+      assert(spark.table(s"stream_sink_$cat").count() == 2)
+    } finally read.stop()
   }
 
   // ---- features Spark refuses or Delta accepts, recorded for the README ----

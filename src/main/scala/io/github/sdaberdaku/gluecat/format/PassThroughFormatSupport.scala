@@ -10,14 +10,8 @@ import io.github.sdaberdaku.gluecat.catalog.GlueCoreCatalog
 class PassThroughFormatSupport(core: GlueCoreCatalog) extends FormatSupport {
   override def loadTable(ident: Identifier): Table = core.loadTable(ident)
 
-  // Load first so that a missing table still reports NoSuchTableException.
-  override def loadTable(ident: Identifier, version: String): Table = noTimeTravel(ident)
-  override def loadTable(ident: Identifier, timestamp: Long): Table = noTimeTravel(ident)
-
-  private def noTimeTravel(ident: Identifier): Table = {
-    core.loadTable(ident)
-    throw new UnsupportedOperationException("Time travel is supported for Delta tables only")
-  }
+  override def loadTable(ident: Identifier, version: String): Table = core.loadTable(ident, version)
+  override def loadTable(ident: Identifier, timestamp: Long): Table = core.loadTable(ident, timestamp)
 
   override def createTable(ident: Identifier, schema: StructType, partitions: Array[Transform],
       properties: java.util.Map[String, String]): Table = core.createTable(ident, schema, partitions, properties)
