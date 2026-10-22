@@ -35,7 +35,11 @@ object CatalogErrors {
     def glue = glueId.getOrElse("<default>")
     e match {
       case _: GlueEntityNotFound =>
-        if (ident.isDefined) new NoSuchTableException(where) else new NoSuchNamespaceException(where)
+        if (ident.isDefined) new NoSuchTableException(where)
+        else new NoSuchNamespaceException(where) {
+          // Spark's message omits the account, which is what tells two catalogs apart.
+          override def getMessage: String = s"${super.getMessage} (catalog $catalogName, glue.id=$glue)"
+        }
       case _: GlueAlreadyExists =>
         if (ident.isDefined) new TableAlreadyExistsException(where)
         else new NamespaceAlreadyExistsException(where.toArray)
