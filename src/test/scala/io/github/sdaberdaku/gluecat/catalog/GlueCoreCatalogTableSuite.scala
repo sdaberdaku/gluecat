@@ -166,6 +166,20 @@ class GlueCoreCatalogTableSuite extends AnyFunSuite {
     assert(c.tableExists(id("a")) && c.tableExists(id("a2")))
   }
 
+  test("path identifiers are not found without asking Glue") {
+    val (c, glue) = fixture()
+    glue.calls.clear()
+    val path = Identifier.of(Array("delta"), "file:/tmp/x")
+    assert(c.loadEntry(path).isEmpty)
+    assert(!c.tableExists(path))
+    intercept[NoSuchTableException](c.loadTable(path))
+    assert(!c.dropTable(path))
+    assert(!c.dropTable(Identifier.of(Array("parquet"), "s3://bucket-a/t")))
+    assert(glue.calls.isEmpty)
+    assert(!c.isPathIdentifier(id("t")))
+    assert(!c.isPathIdentifier(Identifier.of(Array("a", "b"), "/tmp/x")))
+  }
+
   test("dropTable and purgeTable") {
     val (c, glue) = fixture()
     create(c)

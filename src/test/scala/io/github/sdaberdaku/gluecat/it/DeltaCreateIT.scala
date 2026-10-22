@@ -5,8 +5,13 @@ import java.net.URI
 
 import scala.collection.JavaConverters._
 
+import io.delta.tables.DeltaTable
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.analysis.TableAlreadyExistsException
+import org.apache.spark.sql.connector.catalog.Identifier
+import org.apache.spark.sql.connector.expressions.Transform
+import org.apache.spark.sql.types.{IntegerType, StructType}
+import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.junit.runner.RunWith
 import org.scalatestplus.junit.JUnitRunner
 
@@ -26,6 +31,11 @@ abstract class DeltaCreateIT(mode: Mode) extends SparkIT(mode) {
   private def rows(sql: String): Seq[(Int, String)] =
     spark.sql(sql).collect().map(r => (r.getInt(0), r.getString(1))).toSeq
   private def causalChain(e: Throwable): Seq[Throwable] = Iterator.iterate(e)(_.getCause).takeWhile(_ != null).toList
+  // Path identifiers (delta.`<path>`) must never become Glue table requests. The only request naming `delta` comes from
+  // Spark 4.1's ApplyDefaultCollationToStringType, which reads the namespace's default collation for CREATE TABLE
+  // delta.`<path>` (GetDatabase) and ignores any error from it.
+  private def noPathLookups(): Unit =
+    assert(TestGlueCatalog.requests.asScala.filter(r => r._3.contains("delta") && r._2 != "GetDatabase").isEmpty)
 
   test("CREATE TABLE USING delta LOCATION registers the table and loads it as Delta") {
     val loc = tempDir()
@@ -49,6 +59,7 @@ abstract class DeltaCreateIT(mode: Mode) extends SparkIT(mode) {
     assert(glue.getTable("db", "t2").parameters().get("spark.sql.sources.provider") == "delta")
     assert(columns("t2") == Seq("id", "name"))
     assert(hasDeltaLog(loc))
+    noPathLookups()
   }
 
   test("saveAsTable with the path option, kafka2delta style") {
@@ -61,6 +72,7 @@ abstract class DeltaCreateIT(mode: Mode) extends SparkIT(mode) {
     intercept[TableAlreadyExistsException] {
       empty.write.format("delta").option("path", loc).saveAsTable(tbl("db", "t3"))
     }
+    noPathLookups()
   }
 
   test("saveAsTable with a path that already holds a Delta table fails") {
@@ -71,6 +83,7 @@ abstract class DeltaCreateIT(mode: Mode) extends SparkIT(mode) {
     }
     assert(!glue.listTableNames("db").contains("t4"))
     assert(spark.read.format("delta").load(loc).count() == 1)
+    noPathLookups()
   }
 
   test("INSERT and MERGE by name, MERGE by path, read back") {
@@ -83,6 +96,7 @@ abstract class DeltaCreateIT(mode: Mode) extends SparkIT(mode) {
     spark.sql(s"MERGE INTO delta.`$loc` t USING (SELECT 2 AS id, 'c' AS name) s ON t.id = s.id " +
       "WHEN NOT MATCHED THEN INSERT *")
     assert(rows(s"SELECT id, name FROM $t ORDER BY id") == Seq((1, "b"), (2, "c")))
+    noPathLookups()
   }
 
   test("partitioned CTAS writes partition columns in the Glue schema, not as partition keys") {
@@ -96,6 +110,7 @@ abstract class DeltaCreateIT(mode: Mode) extends SparkIT(mode) {
     assert(entry.parameters().get("spark.sql.sources.schema.partCol.0") == "p")
     val detail = spark.sql(s"DESCRIBE DETAIL ${tbl("db", "t6")}").select("partitionColumns").head.getSeq[String](0)
     assert(detail == Seq("p"))
+    noPathLookups()
   }
 
   if (mode == Named) test("nothing is registered in spark_catalog") {
@@ -121,6 +136,47 @@ abstract class DeltaCreateIT(mode: Mode) extends SparkIT(mode) {
     spark.sql(s"CREATE TABLE $t USING delta LOCATION '$loc'") // the recovery registers the existing table
     assert(spark.sql(s"SELECT * FROM $t").count() == 1)
     assert(columns("t9") == Seq("id"))
+    noPathLookups()
+  }
+
+  // As spark_catalog these reach gluecat; Named mode sends them to Delta's own spark_catalog.
+  test("Delta path identifiers go to Delta alone") {
+    val loc = tempDir()
+    spark.sql(s"CREATE TABLE delta.`$loc` (id INT) USING delta")
+    assert(hasDeltaLog(loc))
+    spark.sql(s"ALTER TABLE delta.`$loc` ADD COLUMNS (x STRING)")
+    assert(spark.read.format("delta").load(loc).columns.toSeq == Seq("id", "x"))
+    val loc2 = tempDir()
+    DeltaTable.createOrReplace(spark).location(loc2).addColumn("id", "INT").execute()
+    assert(hasDeltaLog(loc2))
+    assert(!glue.listDatabaseNames().contains("delta"))
+    noPathLookups()
+  }
+
+  test("Delta creates need spark.sql.runSQLOnFiles") {
+    val loc = tempDir()
+    spark.conf.set("spark.sql.runSQLOnFiles", "false")
+    try {
+      val e = intercept[Exception](spark.sql(s"CREATE TABLE ${tbl("db", "t13")} (id INT) USING delta LOCATION '$loc'"))
+      assert(fullMessage(e).contains("gluecat: Delta tables need spark.sql.runSQLOnFiles=true (default); it is false"))
+    } finally spark.conf.unset("spark.sql.runSQLOnFiles")
+    assert(!hasDeltaLog(loc))
+    assert(!glue.listTableNames("db").contains("t13"))
+  }
+
+  // Called on the catalog directly: Spark would qualify (or reject) the location before it reaches the catalog.
+  test("REPLACE refuses a LOCATION on another authority and accepts a trailing slash") {
+    val loc = tempDir()
+    spark.sql(s"CREATE TABLE ${tbl("db", "t12")} (id INT) USING delta LOCATION '$loc'")
+    val catalog = new TestGlueCatalog()
+    catalog.initialize("direct", new CaseInsensitiveStringMap(Map("glue.id" -> "111111111111",
+      "client.region" -> "eu-central-1", "glue.endpoint" -> MiniStack.Endpoint).asJava))
+    def replace(location: String) = catalog.stageReplace(Identifier.of(Array("db"), "t12"),
+      new StructType().add("id", IntegerType), Array.empty[Transform], Map("provider" -> "delta", "location" -> location).asJava)
+    val e = intercept[IllegalArgumentException](replace(loc.replace("file:/", "file://host-b/")))
+    assert(e.getMessage.contains("REPLACE cannot move"))
+    replace(loc + "/").abortStagedChanges()
+    assert(glue.getTable("db", "t12").storageDescriptor().location() == loc)
   }
 
   // Task 12 has the full re-sync tests; these two prove the plumbing.
@@ -133,6 +189,7 @@ abstract class DeltaCreateIT(mode: Mode) extends SparkIT(mode) {
     spark.sql(s"REFRESH TABLE $t")
     assert(columns("t10") == Seq("id", "extra"))
     assert(glue.getTable("db", "t10").parameters().get("spark.sql.sources.schema").contains("extra"))
+    noPathLookups()
   }
 
   test("ALTER TABLE ADD COLUMNS re-syncs the Glue columns") {

@@ -2,6 +2,7 @@ package io.github.sdaberdaku.gluecat.catalog
 
 import java.util.Locale
 
+import org.apache.hadoop.fs.Path
 import org.apache.spark.SPARK_VERSION
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.analysis.NonEmptyNamespaceException
@@ -110,10 +111,18 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
 
   private def qualified(ident: Identifier): String = (catalogName +: ident.namespace.toSeq :+ ident.name).mkString(".")
 
-  def loadEntry(ident: Identifier): Option[GlueTableEntry] = {
-    val n = normalize(ident)
-    guardTable(n)(glue.getTable(single(n.namespace), n.name))
-  }
+  /** A path identifier (``delta.`s3://...` ``, ``parquet.`/tmp/x` ``): a single namespace part and an absolute path as
+    * the name. No Glue table has such a name, and asking Glue would fail on database-scoped IAM policies or on paths
+    * longer than a table name may be, while Delta needs a "not found" to fall back to the path. */
+  def isPathIdentifier(ident: Identifier): Boolean =
+    ident.namespace.length == 1 && (try new Path(ident.name).isAbsolute catch { case _: IllegalArgumentException => false })
+
+  def loadEntry(ident: Identifier): Option[GlueTableEntry] =
+    if (isPathIdentifier(ident)) None
+    else {
+      val n = normalize(ident)
+      guardTable(n)(glue.getTable(single(n.namespace), n.name))
+    }
 
   override def listTables(namespace: Array[String]): Array[Identifier] = guardNamespace(namespace) {
     glue.listTables(single(namespace)).filterNot(_.tableType.contains("VIRTUAL_VIEW"))
@@ -239,6 +248,7 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
   }
 
   override def dropTable(ident: Identifier): Boolean = {
+    if (isPathIdentifier(ident)) return false
     val n = normalize(ident)
     loadEntry(n).foreach(rejectView(n, _))
     try { guardTable(n)(glue.deleteTable(single(n.namespace), n.name)); true }

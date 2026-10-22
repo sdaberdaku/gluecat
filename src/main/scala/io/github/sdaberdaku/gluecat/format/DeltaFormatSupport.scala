@@ -3,6 +3,8 @@ package io.github.sdaberdaku.gluecat.format
 import scala.collection.JavaConverters._
 import scala.util.control.NonFatal
 
+import org.apache.hadoop.fs.Path
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogTable, CatalogTableType, CatalogUtils}
 import org.apache.spark.sql.connector.catalog._
@@ -34,6 +36,19 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
   def pathIdentifier(location: String): Identifier = Identifier.of(Array("delta"), location)
   def isDelta(provider: String): Boolean = provider.equalsIgnoreCase("delta")
   private def isDeltaEntry(entry: GlueTableEntry): Boolean = entry.parameters.get("spark.sql.sources.provider").exists(isDelta)
+
+  // ``delta.`<path>` `` reaches this catalog when it is spark_catalog: Delta handles it alone, Glue is not involved.
+  private def isPath(ident: Identifier): Boolean =
+    core.isPathIdentifier(ident) && ident.namespace.head.equalsIgnoreCase("delta")
+
+  // With runSQLOnFiles off, Delta takes ``delta.`<location>` `` for a catalog identifier and registers it through
+  // spark_catalog. Checked before every Delta create or stage.
+  private def requireSqlOnFiles(): Unit =
+    if (!SparkSession.active.conf.get("spark.sql.runSQLOnFiles", "true").toBoolean) {
+      throw new IllegalStateException("gluecat: Delta tables need spark.sql.runSQLOnFiles=true (default); it is false")
+    }
+
+  private def onPath[T](f: => T): T = { requireSqlOnFiles(); f }
 
   private def qualified(ident: Identifier): String = {
     val n = core.normalize(ident)
@@ -69,7 +84,7 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
     if (!isDeltaEntry(entry)) throw new UnsupportedOperationException(s"${qualified(ident)} is not a Delta table")
     val location = EntryConverter.location(entry)
       .getOrElse(throw new MalformedEntryException(qualified(ident), "no table location"))
-    if (spec.location.exists(l => CatalogUtils.stringToURI(l).getPath != CatalogUtils.stringToURI(location).getPath)) {
+    if (spec.location.exists(l => new Path(l).toUri != new Path(location).toUri)) {
       throw new IllegalArgumentException(
         s"${qualified(ident)} is at $location; REPLACE cannot move it to ${spec.location.get}")
     }
@@ -82,6 +97,7 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
     if (!isDelta(spec.provider)) {
       throw new UnsupportedOperationException("CREATE TABLE AS SELECT and REPLACE TABLE are supported for Delta tables only")
     }
+    requireSqlOnFiles()
     spec
   }
 
@@ -111,8 +127,10 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
 
   override def createTable(ident: Identifier, schema: StructType, partitions: Array[Transform],
       properties: java.util.Map[String, String]): Table = {
+    if (isPath(ident)) return onPath(delta.createTable(ident, schema, partitions, properties))
     val spec = TableProperties.split(properties, "parquet")
     if (!isDelta(spec.provider)) return core.createTable(ident, schema, partitions, properties)
+    requireSqlOnFiles()
     val location = prepareCreate(ident, spec)
     val pathTable = delta.createTable(pathIdentifier(location), schema, partitions, deltaProps(properties))
     writeGlue(ident, location, spec, replace = false)(pathTable)
@@ -126,6 +144,7 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
 
   override def stageCreate(ident: Identifier, schema: StructType, partitions: Array[Transform],
       properties: java.util.Map[String, String]): StagedTable = {
+    if (isPath(ident)) return onPath(staging.stageCreate(ident, schema, partitions, properties))
     val spec = deltaSpec(properties)
     staged(ident, prepareCreate(ident, spec), spec, replace = false)(
       staging.stageCreate(_, schema, partitions, deltaProps(properties)))
@@ -133,6 +152,7 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
 
   override def stageReplace(ident: Identifier, schema: StructType, partitions: Array[Transform],
       properties: java.util.Map[String, String]): StagedTable = {
+    if (isPath(ident)) return onPath(staging.stageReplace(ident, schema, partitions, properties))
     val spec = deltaSpec(properties)
     val location = existingLocation(ident, spec).getOrElse(throw core.missing(core.normalize(ident)))
     staged(ident, location, spec, replace = true)(staging.stageReplace(_, schema, partitions, deltaProps(properties)))
@@ -140,6 +160,7 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
 
   override def stageCreateOrReplace(ident: Identifier, schema: StructType, partitions: Array[Transform],
       properties: java.util.Map[String, String]): StagedTable = {
+    if (isPath(ident)) return onPath(staging.stageCreateOrReplace(ident, schema, partitions, properties))
     val spec = deltaSpec(properties)
     val existing = existingLocation(ident, spec)
     staged(ident, existing.getOrElse(prepareCreate(ident, spec)), spec, replace = existing.isDefined)(
@@ -149,6 +170,7 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
   // ---- alter and refresh ----
 
   override def alterTable(ident: Identifier, changes: Seq[TableChange]): Table = {
+    if (isPath(ident)) return delta.alterTable(ident, changes: _*)
     val entry = core.loadEntry(ident).getOrElse(throw core.missing(core.normalize(ident)))
     if (!isDeltaEntry(entry)) return core.alterTable(ident, changes: _*)
     // Delta's SET LOCATION writes through spark_catalog, so the location goes to the Glue entry only.
@@ -170,7 +192,8 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
     loadTable(ident)
   }
 
-  override def invalidateTable(ident: Identifier): Unit = syncSchema(ident)
+  override def invalidateTable(ident: Identifier): Unit =
+    if (isPath(ident)) delta.invalidateTable(ident) else syncSchema(ident)
 
   /** Rewrites the Glue columns, schema and partition keys of a Delta entry from its log, when they differ. The core
     * passes the entry's VersionId and keeps parameters it does not own. */
