@@ -171,7 +171,8 @@ one fails.
 | CREATE TABLE (managed, no LOCATION) | yes, location derived (below) | yes, metadata only |
 | CTAS, `saveAsTable` | yes, with Delta's semantics | no |
 | REPLACE TABLE, RTAS, `saveAsTable` overwrite | yes, with Delta's semantics | no |
-| ALTER TABLE | Delta handles it in the log; the Glue entry is updated only where Delta would update a catalog entry (for example SET LOCATION), and never through `spark_catalog` | properties, comment, columns, location in Glue |
+| ALTER TABLE | Delta applies it in the log; column changes also re-sync the Glue entry's columns and schema; SET LOCATION updates the Glue location; properties stay in the log. Never through `spark_catalog` | properties, comment, columns, location in Glue |
+| REFRESH TABLE | re-syncs the Glue entry's columns and schema from the Delta log (needs Glue write access) | no-op |
 | RENAME | yes, Glue entry only, data stays in place | same |
 | DROP | removes the Glue entry, never deletes data | same |
 | DROP ... PURGE | fails with a clear error | same |
@@ -196,9 +197,9 @@ catalog unchanged. See "Glue entry format".
 
 ## Non-goals for 1.0.0
 
-- Keeping the Glue columns in sync with the Delta log after commits. Spark and Trino read the Delta
-  schema from `_delta_log`. Columns are written when the catalog creates or replaces an entry, not
-  after later commits.
+- Keeping the Glue columns in sync with the Delta log automatically after every commit. Spark and Trino
+  read the Delta schema from `_delta_log`. Columns are written when the catalog creates or replaces an
+  entry, on `ALTER TABLE` column changes, and on an explicit `REFRESH TABLE`, not after later commits.
 - Making concurrent Delta writers safe. Delta's commit is the exclusive creation of
   `_delta_log/N.json` on S3; that belongs to Delta's LogStore. Delta-Spark's default S3 LogStore is safe
   for one driver only; a conditional-write (`If-None-Match`) LogStore is in review upstream
@@ -260,12 +261,14 @@ The project has failed, even if it works, if it:
   `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD` (a Central Portal user token).
 - The catalog works both as a named catalog and as `spark_catalog`.
 - Core catalog is format-agnostic; Delta support is layered on top.
-- No Glue schema sync after commits.
+- No automatic Glue schema sync after commits.
 - Testing is CI-only, against MiniStack (`ministackorg/ministack`) pinned to an exact version, over a
   full matrix of Spark and Delta versions. MiniStack implements Glue databases, tables and partitions,
   checks `VersionId` on `UpdateTable`, keeps state per account and region, and maps `AssumeRole`
   sessions to the role's account, so two catalogs with two roles get two separate Glue stores.
 - 2026-10-22: SDK relocation dropped (owner decision), see Constraints.
+- 2026-10-22: `REFRESH TABLE` and `ALTER TABLE` column changes re-sync the Glue columns of Delta tables (owner
+  decision); always on, no option.
 
 ## Design
 
@@ -282,7 +285,8 @@ The project has failed, even if it works, if it:
 - Loading goes through `DeltaCatalog.loadTable`, which asks the core catalog for the entry and turns a
   Delta `V1Table` into a `DeltaTableV2` (time travel overloads included). Other tables pass through as
   `V1Table`.
-- Namespace operations, listing, rename and drop go to the core catalog.
+- Namespace operations, listing, rename and drop go to the core catalog. `invalidateTable` is routed to the
+  format support; Delta support implements the re-sync.
 - Creates, replaces and alters are handled by `GlueCatalog` itself (below).
 
 The core catalog maps Glue to Spark and nothing else: databases to namespaces, Glue tables to
@@ -377,7 +381,9 @@ not atomic on those versions.
 - Delta tables: pass `alterTable` to `DeltaCatalog.alterTable` with the catalog identifier. Delta applies
   most changes to the log. The builder audits which changes make Delta call back into a catalog
   (`super.alterTable` to our core is fine; anything reaching `spark.sessionState.catalog` is not) and
-  routes those through the core catalog instead.
+  routes those through the core catalog instead. A change set with any column change (add, delete,
+  rename, type, comment, nullability, position) also re-syncs the Glue entry's columns and schema from
+  the Delta log after Delta applies it, same as `REFRESH TABLE`.
 - Other providers: the core catalog applies the changes to the Glue entry.
 - Every Glue `UpdateTable` the catalog sends passes the `VersionId` it read, so a concurrent change makes
   the update fail with a retryable error instead of overwriting it. `SkipArchive` follows
@@ -417,8 +423,8 @@ too:
   choice between the Hive-compatible form (real SerDe, input and output formats, columns and location
   for providers such as Parquet and ORC, per Spark's `HiveSerDe.sourceToSerDe`) and the Spark-specific
   form with the placeholder location.
-- `StorageDescriptor.Columns`: the table's columns at create or replace time (name and Spark
-  `catalogString` type). No `PartitionKeys`.
+- `StorageDescriptor.Columns`: the table's columns at create, replace, `ALTER TABLE` column change or
+  `REFRESH TABLE` time (name and Spark `catalogString` type). No `PartitionKeys`.
 - User table properties as Glue parameters.
 
 `classification` is not set: Athena's Delta documentation does not use it, and it is a Glue crawler and
@@ -548,7 +554,9 @@ public (Actions minutes are free for public repositories), pushes to `main` run 
 ## Known limitations to document in the README
 
 - One writer per Delta table, until Delta-Spark gets a conditional-write LogStore.
-- Glue columns reflect the schema at create or replace time only.
+- Glue columns are synced at create, replace, `ALTER TABLE` column changes and `REFRESH TABLE`; not after schema evolution inside writes
+  (`mergeSchema`, `MERGE ... WITH SCHEMA EVOLUTION`), which needs a `REFRESH TABLE`. `REFRESH TABLE` on a Delta
+  table needs Glue write access.
 - Non-Delta tables are read-only, and only those whose partitions are not tracked in Glue.
 - DROP never deletes data; PURGE is not supported. This differs from Spark's managed-table semantics:
   dropped managed tables leave their directories under `<warehouse>/<db>.db/` or the database location,
@@ -586,7 +594,8 @@ public (Actions minutes are free for public repositories), pushes to `main` run 
 - No auto-creation of the `default` database; `default-namespace` option.
 - Managed tables are supported but DROP never deletes data, for any table; PURGE fails.
 - All entries are written as `EXTERNAL_TABLE`.
-- Columns written at create or replace time; SerDe `path` mirrored from Spark; for Delta, the real
+- `REFRESH TABLE` re-syncs Glue columns for Delta tables (always on).
+- Columns written at create, replace, `ALTER TABLE` column change and `REFRESH TABLE`; SerDe `path` mirrored from Spark; for Delta, the real
   `StorageDescriptor.Location` and `table_type = DELTA` instead of Spark's placeholder, for Athena.
 - Database and table names lowercased in both directions.
 - SDK default HTTP client; SDK `provided`.
