@@ -49,4 +49,6 @@ jobs:
           distribution: temurin
           java-version: ${{ matrix.jdk }}
           cache: maven
-      - run: ./mvnw -B -ntp -pl modules/${{ matrix.module }} -Dspark.version=${{ matrix.spark }} -Ddelta.version=${{ matrix.delta }} verify
+      - env:
+          DELTA_ARTIFACT: ${{ matrix.deltaArtifact }}
+        run: ./mvnw -B -ntp -pl modules/${{ matrix.module }} -Dspark.version=${{ matrix.spark }} -Ddelta.version=${{ matrix.delta }} ${DELTA_ARTIFACT:+-Ddelta.artifact=$DELTA_ARTIFACT} verify

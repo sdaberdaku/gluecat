@@ -52,6 +52,8 @@
     <!-- Every module sets its own; this default only lets Maven validate the managed _${scala.binary.version}
          artifactIds below when it reads this parent POM on its own. -->
     <scala.binary.version>2.13</scala.binary.version>
+    <!-- Delta publishes Spark-4.0 builds as delta-spark_4.0_2.13 from 4.1.0; that module overrides this. -->
+    <delta.artifact>delta-spark_${scala.binary.version}</delta.artifact>
   </properties>
 
   <dependencyManagement>

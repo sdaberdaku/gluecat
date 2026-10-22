@@ -26,7 +26,7 @@ reads other data-source tables, without the Hive metastore client. Works as a na
 - Glue/STS/IAM emulator for tests: `docker run -d --rm --name ministack -p 4566:4566 ministackorg/ministack:<pinned version>`
 - Unit tests: `./mvnw -pl modules/spark-4.1_2.13 -DskipITs test`
 - Unit tests, jar and integration tests against the jar: `./mvnw -pl modules/spark-4.1_2.13 verify`
-- Other Spark lines: replace the module directory; override versions with `-Dspark.version=... -Ddelta.version=...`.
+- Other Spark lines: replace the module directory; override versions with `-Dspark.version=... -Ddelta.version=...`, and the Delta artifact with `-Ddelta.artifact=...` when it differs from the module default (`delta-spark_4.0_2.13` for the Spark 4.0 module, `delta-spark_2.13` for Delta 4.0.1 on it).
 - JDK 17 builds every module; CI runs each module on every JDK its Spark line supports.
 
 ## Conventions
