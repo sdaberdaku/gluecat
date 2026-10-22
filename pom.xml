@@ -184,6 +184,7 @@
             <environmentVariables>
               <AWS_ENDPOINT_URL>http://localhost:4566</AWS_ENDPOINT_URL>
               <AWS_REGION>eu-central-1</AWS_REGION>
+              <SPARK_LOCAL_IP>127.0.0.1</SPARK_LOCAL_IP>
             </environmentVariables>
             <trimStackTrace>false</trimStackTrace>
           </configuration>
@@ -215,6 +216,7 @@
             <environmentVariables>
               <AWS_ENDPOINT_URL>http://localhost:4566</AWS_ENDPOINT_URL>
               <AWS_REGION>eu-central-1</AWS_REGION>
+              <SPARK_LOCAL_IP>127.0.0.1</SPARK_LOCAL_IP>
             </environmentVariables>
             <trimStackTrace>false</trimStackTrace>
           </configuration>

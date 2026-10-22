@@ -241,4 +241,13 @@ class GlueCoreCatalogTableSuite extends AnyFunSuite {
     c.renameTable(id("t"), Identifier.of(Array.empty[String], "t2"))
     assert(c.tableExists(id("t2")) && !c.tableExists(id("t")))
   }
+
+  test("rename with a target qualified by the catalog name") {
+    val (c, _) = fixture()
+    create(c)
+    c.renameTable(id("t"), Identifier.of(Array("acct_a", "db"), "t2"))
+    assert(c.tableExists(id("t2")) && !c.tableExists(id("t")))
+    create(c, "u")
+    intercept[UnsupportedOperationException](c.renameTable(id("u"), Identifier.of(Array("acct_b", "db"), "u2")))
+  }
 }

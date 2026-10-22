@@ -19,6 +19,12 @@ final class GlueNoSuchNamespaceException(where: Seq[String], glueId: String) ext
   override def getMessage: String = s"${super.getMessage} (glue.id=$glueId)"
 }
 
+/** The default database of unqualified names is missing. Not a NoSuch*Exception: Spark turns those from loadTable
+  * into "table not found" and the database would go unnamed. */
+final class DefaultNamespaceNotFoundException(catalogName: String, database: String, glueId: String)
+    extends AnalysisException(s"Catalog $catalogName: the default database '$database' does not exist in Glue " +
+      s"(glue.id=$glueId); create it, switch with USE <database>, or qualify the table name")
+
 final class GlueCatalogConcurrentModificationException(message: String, cause: Throwable)
     extends RuntimeException(message, cause)
 

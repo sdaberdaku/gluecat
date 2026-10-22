@@ -252,8 +252,13 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
 
   override def renameTable(oldIdent: Identifier, newIdent: Identifier): Unit = {
     val o = normalize(oldIdent)
-    // Spark passes an empty namespace for an unqualified `RENAME TO t2`.
-    val n = normalize(if (newIdent.namespace.isEmpty) Identifier.of(oldIdent.namespace, newIdent.name) else newIdent)
+    // Spark passes the target's name parts as they were typed: no namespace for `RENAME TO t2`, and the catalog
+    // name as the first part for `RENAME TO acct_a.db.t2`.
+    val n = normalize(newIdent.namespace match {
+      case Array() => Identifier.of(oldIdent.namespace, newIdent.name)
+      case Array(`catalogName`, db) => Identifier.of(Array(db), newIdent.name)
+      case _ => newIdent
+    })
     val entry = loadEntry(o).getOrElse(throw missing(o))
     rejectView(o, entry)
     if (loadEntry(n).isDefined) guardTable(n)(throw new GlueAlreadyExists(""))
