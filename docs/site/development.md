@@ -1,6 +1,6 @@
 # Development
 
-JDK 17 or later builds every module (JDK 21 for Scaladoc and the compatibility suites in CI).
+JDK 17 or later builds every module (CI builds the Scaladoc on JDK 17; only the compatibility suites use JDK 21).
 
 ## Layout
 

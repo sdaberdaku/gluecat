@@ -4,6 +4,7 @@ site_url: https://sdaberdaku.github.io/gluecat/
 repo_url: https://github.com/sdaberdaku/gluecat
 edit_uri: edit/main/docs/site/
 docs_dir: docs/site
+exclude_docs: requirements.txt
 theme:
   name: material
   logo: assets/gluecat-icon.png
@@ -21,6 +22,7 @@ theme:
         name: Switch to light mode
   features:
     - content.code.copy
+    - content.action.edit
 plugins:
   - search
 nav:
@@ -37,4 +39,3 @@ nav:
   - API (Scaladoc): https://sdaberdaku.github.io/gluecat/api/
 markdown_extensions:
   - attr_list
-  - tables

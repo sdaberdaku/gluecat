@@ -15,11 +15,12 @@ never passes a catalog identifier to Delta's create calls (`createTable`, `stage
 For Delta tables, every create, replace and CTAS runs on the path identifier `` delta.`<location>` ``, which Delta
 handles without any catalog, and gluecat then writes or updates the Glue entry itself.
 
-- `CREATE TABLE` without a query: gluecat resolves the location (explicit, or derived for managed tables from the
+- `CREATE TABLE` without a query, and `writeStream.toTable` on a missing table (Spark creates the table with a plain
+  create, then streams into the loaded table): gluecat resolves the location (explicit, or derived for managed tables from the
   database location or `warehouse`), calls `DeltaCatalog.createTable` with the path identifier, creates the Glue
   entry, and returns the table loaded by name. If a Delta table already exists at the location, Delta's own rules
   apply: no columns given registers it as it is; columns given must match.
-- CTAS, RTAS, `saveAsTable`, `writeTo`, `writeStream.toTable`: gluecat returns a staged table that wraps Delta's
+- CTAS, RTAS, `saveAsTable` and `writeTo` `create`, `replace` and `createOrReplace`: gluecat returns a staged table that wraps Delta's
   staged table for the path identifier, and Spark writes the query result into it. On commit, Delta commits by path
   first (data and log), then gluecat creates or updates the Glue entry. An abort aborts Delta's stage and leaves Glue
   untouched. A CTAS onto a location that already holds a Delta table fails the way Delta's path CTAS fails.

@@ -3,7 +3,6 @@
 Integration tests cover these rows in both catalog modes; a few non-Delta details (managed-table locations, column
 changes) are covered by unit tests.
 
-
 | Operation | Delta tables | Other data source tables (Parquet, ORC, CSV, JSON, ...) |
 |---|---|---|
 | `SHOW TABLES`, table exists, `DESCRIBE`, load | Yes; loaded through Delta's `DeltaCatalog` | Yes |

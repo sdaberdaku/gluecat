@@ -26,8 +26,9 @@ Spark's Hive-client path read, with two additions for Delta so that Athena's Del
 - `StorageDescriptor.Columns`: the table's columns (name and Spark `catalogString` type) at create, replace,
   `ALTER TABLE` column change or `REFRESH TABLE` time. No `PartitionKeys`.
 - User table properties as Glue parameters.
-- `Retention` 0, `Compressed` false, `NumberOfBuckets` -1 and `StoredAsSubDirectories` false in the
-  `StorageDescriptor`, as Hive writes them; the Glue Hive client unboxes them on read.
+- `Retention` 0 on the table, and `Compressed` false, `NumberOfBuckets` -1 and `StoredAsSubDirectories` false in the
+  `StorageDescriptor`, as Hive writes them; the Glue Hive client unboxes them on read. An `UpdateTable` rewrites
+  them, so bucketed legacy entries lose their bucket count, consistent with the model dropping bucket columns.
 
 `classification` is not set: Athena's Delta documentation does not use it, and it is a Glue crawler and ETL
 convention.

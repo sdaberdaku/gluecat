@@ -11,6 +11,8 @@ design change first.
 
 ## Documentation site
 
+`release.yml` runs `ci.yml` before publishing, which includes the `docs` job, so a documentation build failure blocks a publish.
+
 The site is deployed by `pages.yml` on pushes to `main` that touch the documentation files, or by running the
 workflow manually (`workflow_dispatch`). It is not deployed from the tag: the `github-pages` environment only accepts
 the default branch.

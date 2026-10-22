@@ -1,6 +1,5 @@
 # Limitations
 
-
 - One writer per Delta table: Delta-Spark's default S3 LogStore is safe for one driver only, until Delta gets a
   conditional-write LogStore.
 - The Glue columns of a Delta table are written at create, replace, `ALTER TABLE` column changes and
