@@ -6,7 +6,7 @@ import scala.util.control.NonFatal
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogUtils, CatalogTable, CatalogTableType}
 import org.apache.spark.sql.internal.HiveSerDe
-import org.apache.spark.sql.types.{ArrayType, DataType, MapType, StructType, TimestampNTZType}
+import org.apache.spark.sql.types.{ArrayType, DataType, DayTimeIntervalType, MapType, StringType, StructType, TimestampNTZType, YearMonthIntervalType}
 
 import io.github.sdaberdaku.gluecat.glue.{GlueColumn, GlueDatabaseEntry, GlueStorage, GlueTableEntry}
 
@@ -14,6 +14,11 @@ import io.github.sdaberdaku.gluecat.glue.{GlueColumn, GlueDatabaseEntry, GlueSto
 object EntryConverter {
   val HiddenParameters: Set[String] = Set("EXTERNAL", "table_type", "transient_lastDdlTime")
   val PlaceholderSuffix = "-__PLACEHOLDER__"
+
+  private val SeqInput = "org.apache.hadoop.mapred.SequenceFileInputFormat"
+  private val SeqOutput = "org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat"
+  private val LazySerde = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe"
+  private val HiveFieldName = "[A-Za-z_][A-Za-z0-9_]*".r.pattern
 
   private val Provider = "spark.sql.sources.provider"
   private val SchemaKey = "spark.sql.sources.schema"
@@ -84,7 +89,7 @@ object EntryConverter {
     val uri = CatalogUtils.URIToString(table.storage.locationUri.getOrElse(
       throw new IllegalArgumentException(s"table ${table.identifier} has no location")))
     val params = table.properties ++ Map(
-      "EXTERNAL" -> "TRUE", Provider -> provider, "spark.sql.create.version" -> org.apache.spark.SPARK_VERSION,
+      "EXTERNAL" -> "TRUE", Provider -> provider, "spark.sql.create.version" -> Some(table.createVersion).filter(_.nonEmpty).getOrElse(org.apache.spark.SPARK_VERSION),
       "spark.sql.partitionProvider" -> "filesystem") ++ schemaParams(table.schema, schemaThreshold) ++
       partitionParams(table.partitionColumnNames)
     val serdeParams = table.storage.properties ++ Map("serialization.format" -> "1", "path" -> uri)
@@ -99,25 +104,26 @@ object EntryConverter {
     val hive = HiveSerDe.sourceToSerDe(provider)
     if (provider.equalsIgnoreCase("delta")) {
       entry(Map("table_type" -> "DELTA"),
-        GlueStorage(Some(uri), Some("org.apache.hadoop.mapred.SequenceFileInputFormat"),
-          Some("org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat"),
-          Some("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe"), serdeParams,
+        GlueStorage(Some(uri), Some(SeqInput), Some(SeqOutput), Some(LazySerde), serdeParams,
           table.schema.fields.toSeq.map(column)), Nil)
     } else if (hive.isDefined && table.schema.forall(f => isHiveCompatibleType(f.dataType))) {
       entry(Map.empty, GlueStorage(Some(uri), hive.get.inputFormat, hive.get.outputFormat, hive.get.serde,
         serdeParams, dataCols.map(column)), partCols.map(column))
     } else {
-      entry(Map.empty, GlueStorage(Some(uri + PlaceholderSuffix), None, None, None, serdeParams,
+      entry(Map.empty, GlueStorage(Some(uri + PlaceholderSuffix), Some(SeqInput), Some(SeqOutput), Some(LazySerde), serdeParams,
         Seq(GlueColumn("col", "array<string>", Some("from deserializer")))), partCols.map(column))
     }
   }
 
-  /** False for types Hive cannot store (timestamp_ntz, variant), recursively. */
+  /** Mirrors HiveExternalCatalog: false for timestamp_ntz, variant, ANSI intervals, collated strings and
+   *  nested field names that need quoting, recursively. */
   def isHiveCompatibleType(dataType: DataType): Boolean = dataType match {
-    case TimestampNTZType => false
+    // AnsiIntervalType is private[spark]; these are its two public subtypes
+    case TimestampNTZType | _: DayTimeIntervalType | _: YearMonthIntervalType => false
+    case s: StringType => s.typeName == "string"
     case ArrayType(e, _) => isHiveCompatibleType(e)
     case MapType(k, v, _) => isHiveCompatibleType(k) && isHiveCompatibleType(v)
-    case s: StructType => s.forall(f => isHiveCompatibleType(f.dataType))
+    case s: StructType => s.forall(f => HiveFieldName.matcher(f.name).matches() && isHiveCompatibleType(f.dataType))
     // VariantType does not exist on Spark 3.5, so match by name
     case other => other.typeName != "variant"
   }

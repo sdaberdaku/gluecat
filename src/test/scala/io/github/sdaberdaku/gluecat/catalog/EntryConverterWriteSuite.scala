@@ -62,7 +62,27 @@ class EntryConverterWriteSuite extends AnyFunSuite {
     assert(e.storage.columns == Seq(GlueColumn("col", "array<string>", Some("from deserializer"))))
     assert(e.storage.location.exists(_.endsWith("-__PLACEHOLDER__")))
     assert(e.storage.serdeParameters("path") == loc)
+    assert(e.storage.serdeLibrary.contains("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe"))
+    assert(e.storage.inputFormat.contains("org.apache.hadoop.mapred.SequenceFileInputFormat"))
+    assert(e.storage.outputFormat.contains("org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat"))
     assert(e.partitionKeys == Seq(GlueColumn("dt", "string")))
+  }
+
+  test("ANSI interval column falls back to the Spark-specific form") {
+    val s = new StructType().add("id", "string").add("i", DayTimeIntervalType()).add("dt", "string")
+    assertSparkSpecific(EntryConverter.toGlueTable(ct("parquet", s, Seq("dt"), loc), 4000))
+  }
+
+  test("nested field name needing quoting falls back to the Spark-specific form") {
+    val s = new StructType().add("id", "string").add("n", new StructType().add("a-b", "int")).add("dt", "string")
+    assertSparkSpecific(EntryConverter.toGlueTable(ct("parquet", s, Seq("dt"), loc), 4000))
+  }
+
+  test("create version is kept when set, else the running Spark version") {
+    val kept = EntryConverter.toGlueTable(ct("delta", idDt, Nil, loc).copy(createVersion = "3.5.5"), 4000)
+    assert(kept.parameters("spark.sql.create.version") == "3.5.5")
+    val unset = EntryConverter.toGlueTable(ct("delta", idDt, Nil, loc).copy(createVersion = ""), 4000)
+    assert(unset.parameters("spark.sql.create.version") == SPARK_VERSION)
   }
 
   test("parquet with timestamp_ntz falls back to the Spark-specific form") {
@@ -114,13 +134,14 @@ class EntryConverterWriteSuite extends AnyFunSuite {
 
   test("read after write round trip, including a location with a space") {
     for (p <- Seq("delta", "parquet", "json"); l <- Seq(loc, "s3://bucket-a/my dir/t")) {
-      val in = ct(p, idNameDt, Seq("dt"), l, Map("k" -> "v"))
+      val in = ct(p, idNameDt, Seq("dt"), l, Map("k" -> "v")).copy(createVersion = "3.5.5")
       val out = EntryConverter.toCatalogTable("acct_a", EntryConverter.toGlueTable(in, 4000))
       assert(out.schema == in.schema, p)
       assert(out.partitionColumnNames == in.partitionColumnNames, p)
       assert(out.provider == in.provider, p)
       assert(out.storage.locationUri == in.storage.locationUri, p)
       assert(out.properties == in.properties, p)
+      assert(out.createVersion == "3.5.5", p)
     }
   }
 
