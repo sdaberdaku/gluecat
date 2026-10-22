@@ -535,8 +535,9 @@ Then:
 
 CI matrix: every artifact in the table above (Spark minor and Scala version, latest patch of each Spark
 minor, plus 3.5.3 as the 3.5 floor), crossed with every Delta release line that supports that Spark
-minor according to Delta's compatibility table, crossed with every JDK that Spark minor supports. Keep
-the matrix in one place so adding a Spark, Delta or JDK release is a one-line change.
+minor according to Delta's compatibility table, crossed with every JDK that Spark minor supports. A Delta release that no longer runs on the latest patch is tested
+on the last patch it runs on (Delta 4.1.0 and 4.2.0 fail every Delta `ALTER TABLE` on Spark 4.1.2 and later, so they
+run on 4.1.1). Keep the matrix in one place so adding a Spark, Delta or JDK release is a one-line change.
 
 The full matrix is about 40 jobs; at roughly 5 minutes each that is about 200 runner minutes per run,
 and GitHub Free gives a private repository 2,000 minutes a month. So, while the repository is private,
