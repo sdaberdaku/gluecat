@@ -29,7 +29,11 @@ object GlueClients {
   def credentialsProvider(options: GlueCatalogOptions): AwsCredentialsProvider =
     options.credentialsProvider.map(custom(_, options))
       .orElse(options.assumeRoleArn.map(assumeRole(_, options)))
-      .getOrElse(DefaultCredentialsProvider.create())
+      .getOrElse(defaultChain())
+
+  // A chain per catalog: DefaultCredentialsProvider.create() is one JVM-wide instance that keeps the first provider
+  // that worked and reads the web identity settings only once.
+  private def defaultChain(): AwsCredentialsProvider = DefaultCredentialsProvider.builder().build()
 
   private def custom(className: String, options: GlueCatalogOptions): AwsCredentialsProvider = {
     def fail(cause: Throwable, detail: String) = new IllegalArgumentException(
@@ -58,7 +62,7 @@ object GlueClients {
   }
 
   private def assumeRole(arn: String, options: GlueCatalogOptions): AwsCredentialsProvider = {
-    val sts = StsClient.builder().credentialsProvider(DefaultCredentialsProvider.create())
+    val sts = StsClient.builder().credentialsProvider(defaultChain())
     options.assumeRoleRegion.orElse(options.region).foreach(r => sts.region(Region.of(r)))
     val req = AssumeRoleRequest.builder().roleArn(arn).roleSessionName(options.assumeRoleSessionName)
       .durationSeconds(options.assumeRoleTimeoutSec)

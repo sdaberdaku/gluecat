@@ -32,6 +32,10 @@ abstract class SparkIT(mode: Mode) extends AnyFunSuite with BeforeAndAfterAll {
   def fullMessage(e: Throwable): String =
     Iterator.iterate(e)(_.getCause).takeWhile(_ != null).map(_.getMessage).mkString(" | ")
 
+  /** More `TestGlueCatalog`s for every session, by name, with their options on top of the shared ones; a
+    * `spark_catalog` entry here replaces the Named mode's DeltaCatalog. */
+  protected def otherCatalogs: Map[String, Map[String, String]] = Map.empty
+
   /** Stops the current session and starts one with `catalogOptions` added to the catalog's options. */
   protected def startSession(catalogOptions: Map[String, String] = Map.empty): Unit = {
     stopSession()
@@ -45,13 +49,15 @@ abstract class SparkIT(mode: Mode) extends AnyFunSuite with BeforeAndAfterAll {
       .config("spark.sql.warehouse.dir", s"$root/spark-warehouse")
       .config("spark.sql.catalogImplementation", "in-memory")
     if (mode == Named) b.config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
-    val options = Map(
+    val shared = Map(
       "glue.id" -> "111111111111",
       "client.region" -> "eu-central-1",
       "glue.endpoint" -> MiniStack.Endpoint,
-      "warehouse" -> s"file:$root/wh") ++ catalogOptions
-    b.config(s"spark.sql.catalog.$cat", classOf[TestGlueCatalog].getName)
-    options.foreach { case (k, v) => b.config(s"spark.sql.catalog.$cat.$k", v) }
+      "warehouse" -> s"file:$root/wh")
+    (otherCatalogs + (cat -> catalogOptions)).foreach { case (name, own) =>
+      b.config(s"spark.sql.catalog.$name", classOf[TestGlueCatalog].getName)
+      (shared ++ own).foreach { case (k, v) => b.config(s"spark.sql.catalog.$name.$k", v) }
+    }
     spark = b.getOrCreate()
   }
 

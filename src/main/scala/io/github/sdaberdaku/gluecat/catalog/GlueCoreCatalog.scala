@@ -211,7 +211,13 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
 
   override def alterTable(ident: Identifier, changes: TableChange*): Table = {
     val n = normalize(ident)
-    val entry = loadEntry(n).getOrElse(throw missing(n))
+    alterEntry(n, loadEntry(n).getOrElse(throw missing(n)), changes)
+  }
+
+  /** `alterTable` on an entry already read; the update carries that entry's VersionId. Tests use it to alter from a
+    * stale read. */
+  private[gluecat] def alterEntry(ident: Identifier, entry: GlueTableEntry, changes: Seq[TableChange]): Table = {
+    val n = normalize(ident)
     rejectView(n, entry)
     val (table, removed) = applyPropertyChanges(EntryConverter.toCatalogTable(catalogName, entry), changes)
     val columnChanges = changes.filter {
