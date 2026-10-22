@@ -59,7 +59,7 @@
       <dependency>
         <groupId>software.amazon.awssdk</groupId>
         <artifactId>bom</artifactId>
-        <version>2.57.2</version>
+        <version>2.24.6</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -82,7 +82,7 @@
   </dependencyManagement>
 
   <build>
-    <!-- Modules list the build-helper, scala, surefire, failsafe and shade plugins in their <build><plugins>;
+    <!-- Modules list the build-helper, scala, surefire and failsafe plugins in their <build><plugins>;
          all configuration lives here so this pom-packaged parent does not run them itself. -->
     <pluginManagement>
       <plugins>
@@ -115,60 +115,10 @@
               <arg>${scalac.release.arg}</arg>
               <arg>-deprecation</arg>
               <arg>-feature</arg>
+              <!-- JavaConverters is deprecated on 2.13 but is the API that compiles on both 2.12 and 2.13. -->
+              <arg>-Wconf:cat=deprecation&amp;origin=scala\.collection\.JavaConverters.*:s</arg>
             </args>
           </configuration>
-        </plugin>
-        <plugin>
-          <groupId>org.apache.maven.plugins</groupId>
-          <artifactId>maven-shade-plugin</artifactId>
-          <version>3.6.2</version>
-          <executions>
-            <execution>
-              <phase>package</phase>
-              <goals>
-                <goal>shade</goal>
-              </goals>
-              <configuration>
-                <createDependencyReducedPom>true</createDependencyReducedPom>
-                <artifactSet>
-                  <includes>
-                    <include>software.amazon.awssdk:*</include>
-                    <include>software.amazon.eventstream:*</include>
-                    <include>org.reactivestreams:*</include>
-                  </includes>
-                </artifactSet>
-                <relocations>
-                  <relocation>
-                    <pattern>software.amazon.awssdk</pattern>
-                    <shadedPattern>io.github.sdaberdaku.gluecat.shaded.awssdk</shadedPattern>
-                  </relocation>
-                  <relocation>
-                    <pattern>software.amazon.eventstream</pattern>
-                    <shadedPattern>io.github.sdaberdaku.gluecat.shaded.eventstream</shadedPattern>
-                  </relocation>
-                  <relocation>
-                    <pattern>org.reactivestreams</pattern>
-                    <shadedPattern>io.github.sdaberdaku.gluecat.shaded.reactivestreams</shadedPattern>
-                  </relocation>
-                </relocations>
-                <transformers>
-                  <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
-                </transformers>
-                <filters>
-                  <filter>
-                    <artifact>*:*</artifact>
-                    <excludes>
-                      <exclude>module-info.class</exclude>
-                      <exclude>META-INF/versions/*/module-info.class</exclude>
-                      <exclude>META-INF/*.SF</exclude>
-                      <exclude>META-INF/*.DSA</exclude>
-                      <exclude>META-INF/*.RSA</exclude>
-                    </excludes>
-                  </filter>
-                </filters>
-              </configuration>
-            </execution>
-          </executions>
         </plugin>
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
