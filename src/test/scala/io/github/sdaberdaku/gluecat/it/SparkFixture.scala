@@ -1,6 +1,7 @@
 package io.github.sdaberdaku.gluecat.it
 
-import java.nio.file.{Files, Path}
+import java.nio.file.{Files, Path, Paths}
+import java.nio.file.attribute.PosixFilePermissions
 
 import scala.collection.JavaConverters._
 
@@ -27,6 +28,14 @@ abstract class SparkIT(mode: Mode) extends AnyFunSuite with BeforeAndAfterAll {
 
   /** A new empty directory, as a `file:` URI in the form Spark qualifies locations to. */
   def tempDir(): String = "file:" + Files.createTempDirectory(root, "t").toAbsolutePath
+
+  /** A new empty directory under /tmp/gluecat-compat, which the compatibility containers (docker/docker-compose.yml)
+    * mount at the same path; world-writable because they run as other users. Not deleted afterwards: the containers
+    * write files there that this JVM cannot remove. */
+  def compatDir(): String = {
+    val dir = Files.createTempDirectory(Paths.get("/tmp/gluecat-compat"), getClass.getSimpleName)
+    "file:" + Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwxrwxrwx")).toAbsolutePath
+  }
 
   /** Every message in the cause chain, for errors Spark wraps. */
   def fullMessage(e: Throwable): String =

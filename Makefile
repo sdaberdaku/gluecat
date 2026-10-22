@@ -24,9 +24,9 @@ ministack-up:
 ministack-down:
 	docker rm -f ministack
 
-# Trino and legacy Spark containers for the compatibility suites.
+# MiniStack, Trino and legacy Spark containers for the compatibility suites (run make ministack-down first).
 compat-up:
-	mkdir -m 0777 -p /tmp/gluecat-compat && $(COMPOSE) up -d
+	mkdir -m 0777 -p /tmp/gluecat-compat && $(COMPOSE) up -d --wait
 
 compat-down:
 	$(COMPOSE) down

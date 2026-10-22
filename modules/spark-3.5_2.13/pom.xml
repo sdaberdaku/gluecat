@@ -74,6 +74,12 @@
       <artifactId>iam</artifactId>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <!-- TrinoCompat*IT; loaded only when TRINO_URL is set -->
+      <groupId>io.trino</groupId>
+      <artifactId>trino-jdbc</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>

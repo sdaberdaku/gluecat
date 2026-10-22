@@ -55,3 +55,19 @@ jobs:
       - env:
           DELTA_ARTIFACT: ${{ matrix.deltaArtifact }}
         run: ./mvnw -B -ntp -pl modules/${{ matrix.module }} -Dspark.version=${{ matrix.spark }} -Ddelta.version=${{ matrix.delta }} ${DELTA_ARTIFACT:+-Ddelta.artifact=$DELTA_ARTIFACT} verify
+
+  # Trino reads gluecat's Glue entries (and gluecat Trino's) on the containers of docker/docker-compose.yml.
+  compat:
+    needs: plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      - run: mkdir -m 0777 -p /tmp/gluecat-compat && docker compose -f docker/docker-compose.yml up -d --wait
+      - env:
+          TRINO_URL: jdbc:trino://localhost:8080
+        run: ./mvnw -B -ntp -pl modules/spark-4.1_2.13 -Dit.test='TrinoCompat*IT' verify

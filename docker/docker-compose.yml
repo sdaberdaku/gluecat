@@ -1,0 +1,20 @@
+# Containers for the compatibility suite TrinoCompat*IT: make compat-up / compat-down.
+# /tmp/gluecat-compat must exist with mode 0777 before `up`: the tests write table data there and Trino sees it at the
+# same path. The ministack service replaces the standalone MiniStack container on port 4566.
+services:
+  ministack:
+    image: ministackorg/ministack:1.5.31
+    container_name: ministack
+    ports:
+      - "4566:4566"
+
+  trino:
+    image: trinodb/trino:484
+    container_name: trino
+    depends_on:
+      - ministack
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./trino/etc:/etc/trino:ro
+      - /tmp/gluecat-compat:/tmp/gluecat-compat
