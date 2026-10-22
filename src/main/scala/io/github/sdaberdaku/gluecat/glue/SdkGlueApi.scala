@@ -2,19 +2,22 @@ package io.github.sdaberdaku.gluecat.glue
 
 import scala.collection.JavaConverters._
 
-import software.amazon.awssdk.core.exception.SdkClientException
+import software.amazon.awssdk.awscore.exception.AwsServiceException
+import software.amazon.awssdk.core.exception.{SdkClientException, SdkException}
 import software.amazon.awssdk.services.glue.GlueClient
 import software.amazon.awssdk.services.glue.model.{Option => _, _}
 
 import io.github.sdaberdaku.gluecat.GlueCatalogOptions
 
-class SdkGlueApi(client: GlueClient, catalogId: Option[String], observer: GlueRequestObserver) extends GlueApi {
+class SdkGlueApi(client: GlueClient, catalogId: Option[String], observer: GlueRequestObserver,
+    roleArn: Option[String] = None) extends GlueApi {
   private val PageSize = 100
 
   /** Reports the call, runs it and maps SDK failures to the SDK-free exceptions. */
   private def guard[T](operation: String)(f: => T): T = {
     observer.onRequest(operation, catalogId)
-    val where = s"Glue $operation" + catalogId.map(id => s" (catalog $id)").getOrElse("")
+    val where = s"Glue $operation" + catalogId.map(id => s" (catalog $id)").getOrElse("") +
+      roleArn.map(arn => s" (role $arn)").getOrElse("")
     try f
     catch {
       case e: EntityNotFoundException => throw new GlueEntityNotFound(s"$where: ${e.getMessage}", e)
@@ -22,9 +25,15 @@ class SdkGlueApi(client: GlueClient, catalogId: Option[String], observer: GlueRe
       case e: ConcurrentModificationException => throw new GlueConcurrentModification(s"$where: ${e.getMessage}", e)
       case e: AccessDeniedException => throw new GlueAccessDenied(s"$where: ${e.getMessage}", e)
       case e: GlueException => throw new GlueFailure(operation, s"$where failed: ${e.getMessage}", e)
-      case e: SdkClientException => throw new GlueFailure(operation, s"$where failed: ${e.getMessage}", e)
+      case e: AwsServiceException if isAccessDenied(e) => throw new GlueAccessDenied(s"$where: ${e.getMessage}", e)
+      // e.g. a StsException surfacing from the lazy credentials resolution of the first call
+      case e: SdkException => throw new GlueFailure(operation, s"$where failed: ${e.getMessage}", e)
     }
   }
+
+  private def isAccessDenied(e: AwsServiceException): Boolean =
+    e.statusCode == 403 || Option(e.awsErrorDetails).flatMap(d => Option(d.errorCode))
+      .exists(c => c == "AccessDenied" || c == "AccessDeniedException")
 
   private def notFoundAsNone[T](f: => T): Option[T] =
     try Some(f) catch { case _: GlueEntityNotFound => None }
@@ -176,5 +185,5 @@ class SdkGlueApi(client: GlueClient, catalogId: Option[String], observer: GlueRe
 
 object SdkGlueApi {
   def apply(options: GlueCatalogOptions, observer: GlueRequestObserver = GlueRequestObserver.Noop): SdkGlueApi =
-    new SdkGlueApi(GlueClients.build(options), options.glueId, observer)
+    new SdkGlueApi(GlueClients.build(options), options.glueId, observer, options.assumeRoleArn)
 }

@@ -32,13 +32,23 @@ object GlueClients {
       .getOrElse(DefaultCredentialsProvider.create())
 
   private def custom(className: String, options: GlueCatalogOptions): AwsCredentialsProvider = {
-    val cls = Class.forName(className)
+    def fail(cause: Throwable, detail: String) = new IllegalArgumentException(
+      s"client.credentials-provider '$className' $detail", cause)
     val instance: AnyRef =
-      try cls.getMethod("create", classOf[java.util.Map[_, _]]).invoke(null, options.credentialsProviderOptions.asJava)
-      catch {
-        case _: NoSuchMethodException =>
-          try cls.getMethod("create").invoke(null)
-          catch { case _: NoSuchMethodException => cls.getConstructor().newInstance().asInstanceOf[AnyRef] }
+      try {
+        // Same class loader Spark uses for catalog plugins.
+        val loader = Option(Thread.currentThread.getContextClassLoader).getOrElse(getClass.getClassLoader)
+        val cls = Class.forName(className, true, loader)
+        try cls.getMethod("create", classOf[java.util.Map[_, _]]).invoke(null, options.credentialsProviderOptions.asJava)
+        catch {
+          case _: NoSuchMethodException =>
+            try cls.getMethod("create").invoke(null)
+            catch { case _: NoSuchMethodException => cls.getConstructor().newInstance().asInstanceOf[AnyRef] }
+        }
+      } catch {
+        case e: java.lang.reflect.InvocationTargetException =>
+          throw fail(if (e.getCause != null) e.getCause else e, s"failed to instantiate: ${Option(e.getCause).getOrElse(e)}")
+        case e: ReflectiveOperationException => throw fail(e, s"cannot be loaded or instantiated: $e")
       }
     instance match {
       case p: AwsCredentialsProvider => p

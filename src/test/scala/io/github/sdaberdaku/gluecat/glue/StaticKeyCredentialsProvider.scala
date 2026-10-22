@@ -28,3 +28,13 @@ class NotAProvider
 class ConstructorOnlyCredentialsProvider extends AwsCredentialsProvider {
   override def resolveCredentials(): AwsCredentials = AwsBasicCredentials.create("AKIA3", "secret3")
 }
+
+/** create(Map) always fails. */
+class ThrowingCredentialsProvider extends AwsCredentialsProvider {
+  override def resolveCredentials(): AwsCredentials = throw new UnsupportedOperationException
+}
+
+object ThrowingCredentialsProvider {
+  def create(options: java.util.Map[String, String]): ThrowingCredentialsProvider =
+    throw new IllegalStateException("bad options")
+}

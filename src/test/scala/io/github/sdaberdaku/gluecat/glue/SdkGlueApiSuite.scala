@@ -146,6 +146,26 @@ class SdkGlueApiSuite extends AnyFunSuite {
     assert(e.operation == "CreateTable")
   }
 
+  test("a 403 AwsServiceException (e.g. STS) maps to GlueAccessDenied naming operation, catalog and role") {
+    val arn = "arn:aws:iam::222222222222:role/glue-access"
+    val denied = software.amazon.awssdk.services.sts.model.StsException.builder().statusCode(403).message("not allowed")
+      .awsErrorDetails(software.amazon.awssdk.awscore.exception.AwsErrorDetails.builder().errorCode("AccessDenied").build())
+      .build()
+    val api = new SdkGlueApi(new Stub {
+      override def getTable(r: GetTableRequest): GetTableResponse = throw denied
+    }, Some(Cat), GlueRequestObserver.Noop, Some(arn))
+    val e = intercept[GlueAccessDenied](api.getTable("db", "t"))
+    assert(e.getCause eq denied)
+    assert(Seq("GetTable", Cat, arn).forall(e.getMessage.contains))
+  }
+
+  test("a non-403 AwsServiceException maps to GlueFailure") {
+    val e = intercept[GlueFailure](failing(
+      software.amazon.awssdk.services.sts.model.StsException.builder().statusCode(500).message("oops").build())
+      .getTable("db", "t"))
+    assert(e.operation == "GetTable")
+  }
+
   test("updateTable passes versionId and skipArchive") {
     val seen = ArrayBuffer.empty[UpdateTableRequest]
     val stub = new Stub {

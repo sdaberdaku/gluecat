@@ -49,6 +49,20 @@ class GlueClientsSuite extends AnyFunSuite {
     assert(e.getMessage.contains(classOf[NotAProvider].getName))
   }
 
+  test("credentialsProvider: a missing class is an IllegalArgumentException naming key and class") {
+    val e = intercept[IllegalArgumentException](GlueClients.credentialsProvider(opts(
+      "client.credentials-provider" -> "com.example.Missing")))
+    assert(e.getMessage.contains("client.credentials-provider") && e.getMessage.contains("com.example.Missing"))
+    assert(e.getCause.isInstanceOf[ClassNotFoundException])
+  }
+
+  test("credentialsProvider: a failing create(Map) is wrapped with the original as cause") {
+    val e = intercept[IllegalArgumentException](GlueClients.credentialsProvider(opts(
+      "client.credentials-provider" -> classOf[ThrowingCredentialsProvider].getName)))
+    assert(e.getMessage.contains("client.credentials-provider") && e.getMessage.contains("ThrowingCredentialsProvider"))
+    assert(e.getCause.isInstanceOf[IllegalStateException] && e.getCause.getMessage == "bad options")
+  }
+
   test("build applies endpoint and region") {
     val client = GlueClients.build(opts("glue.endpoint" -> "http://localhost:4566", "client.region" -> "eu-central-1",
       "client.credentials-provider" -> classOf[StaticKeyCredentialsProvider].getName,
