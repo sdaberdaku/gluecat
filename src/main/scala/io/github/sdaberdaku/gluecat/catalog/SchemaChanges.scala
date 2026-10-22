@@ -23,7 +23,18 @@ object SchemaChanges {
     case c: AddColumn =>
       val name = top(c, c.fieldNames())
       val field = StructField(name, c.dataType(), c.isNullable)
-      schema.add(Option(c.comment()).fold(field)(field.withComment))
+      val withComment = Option(c.comment()).fold(field)(field.withComment)
+      c.position() match {
+        case null => schema.add(withComment)
+        case _: First => StructType(withComment +: schema.fields)
+        case a: After =>
+          val idx = schema.fieldNames.indexOf(a.column())
+          if (idx < 0) throw new IllegalArgumentException(s"Column not found: ${a.column()}")
+          val (head, tail) = schema.fields.splitAt(idx + 1)
+          StructType((head :+ withComment) ++ tail)
+        case other =>
+          throw new UnsupportedOperationException(s"Unsupported column position: ${other.getClass.getSimpleName}")
+      }
     case c: DeleteColumn =>
       val name = top(c, c.fieldNames())
       update(schema, name)(identity)

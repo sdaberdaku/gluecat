@@ -11,8 +11,29 @@ class SchemaChangesSuite extends AnyFunSuite {
   private val schema = StructType(Seq(StructField("a", IntegerType), StructField("b", StringType)))
   private def apply(c: TableChange) = SchemaChanges(schema, Seq(c))
 
+  // The positional addColumn factory has a different arity on Spark 3.5 and 4.x (4.x adds a default value).
+  private def addAt(pos: TableChange.ColumnPosition): TableChange = {
+    val m = classOf[TableChange].getMethods.filter(x => x.getName == "addColumn" && x.getParameterCount >= 5)
+      .minBy(_.getParameterCount)
+    val args = Array[AnyRef](Array("c"), LongType, java.lang.Boolean.TRUE, null, pos) ++
+      Array.fill[AnyRef](m.getParameterCount - 5)(null)
+    m.invoke(null, args: _*).asInstanceOf[TableChange]
+  }
+
   test("add column appends") {
     assert(apply(TableChange.addColumn(Array("c"), LongType)).fieldNames.toSeq == Seq("a", "b", "c"))
+  }
+  test("add column first") {
+    val c = addAt(TableChange.ColumnPosition.first())
+    assert(apply(c).fieldNames.toSeq == Seq("c", "a", "b"))
+  }
+  test("add column after") {
+    val c = addAt(TableChange.ColumnPosition.after("a"))
+    assert(apply(c).fieldNames.toSeq == Seq("a", "c", "b"))
+  }
+  test("add column after a missing column names it") {
+    val c = addAt(TableChange.ColumnPosition.after("missing"))
+    assert(intercept[IllegalArgumentException](apply(c)).getMessage.contains("missing"))
   }
   test("delete column") {
     assert(apply(TableChange.deleteColumn(Array("a"), false)).fieldNames.toSeq == Seq("b"))
