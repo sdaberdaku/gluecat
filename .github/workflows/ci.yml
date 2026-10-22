@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, implementation]  # temporary: the branch has no dispatchable workflow until ci.yml is on main
   pull_request:
   workflow_dispatch:
     inputs:
