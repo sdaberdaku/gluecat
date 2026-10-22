@@ -136,14 +136,23 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
         s"Cannot place table ${qualified(n)}: no location given, database $db has no location and the catalog has no warehouse option"))
   }
 
-  private def rejectCollation(keys: Iterable[String]): Unit =
-    if (keys.exists(_ == "collation")) throw new UnsupportedOperationException("Table property 'collation' is not supported")
+  private val Mapped = Set("comment", "location", "owner")
+
+  /** Keys the catalog owns (or cannot support) cannot be set or unset by users. */
+  private def rejectOwnedKey(k: String): Unit =
+    if (k == "collation" || k.startsWith("spark.sql.") || EntryConverter.HiddenParameters(k) ||
+      (TableProperties.ReservedKeys(k) && !Mapped(k))) {
+      throw new UnsupportedOperationException(s"Table property '$k' is managed by the catalog and cannot be set or removed")
+    }
+
+  private def rejectView(n: Identifier, entry: GlueTableEntry): Unit =
+    if (entry.tableType.contains("VIRTUAL_VIEW")) throw new UnsupportedTableException(qualified(n), "is a view; views are not supported")
 
   override def createTable(ident: Identifier, schema: StructType, partitions: Array[Transform],
       properties: java.util.Map[String, String]): Table = {
     val n = normalize(ident)
     val spec = TableProperties.split(properties, "parquet")
-    rejectCollation(spec.properties.keys)
+    spec.properties.keys.foreach(rejectOwnedKey)
     val location = resolveLocation(n, spec)
     registerTable(n, CatalogTable(
       identifier = TableIdentifier(n.name, Some(single(n.namespace)), Some(catalogName)),
@@ -161,7 +170,10 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
   }
 
   def registerTable(ident: Identifier, table: CatalogTable): Unit =
-    createEntry(normalize(ident), EntryConverter.toGlueTable(table, schemaThreshold()))
+    createEntry(normalize(ident), named(normalize(ident), EntryConverter.toGlueTable(table, schemaThreshold())))
+
+  // The entry is named by the identifier the caller targets, never by the table's own identifier.
+  private def named(n: Identifier, entry: GlueTableEntry) = entry.copy(database = single(n.namespace), name = n.name)
 
   private def createEntry(n: Identifier, entry: GlueTableEntry): Unit =
     try glue.createTable(entry) catch {
@@ -173,17 +185,17 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
 
   // Unknown parameters (written by other engines) survive; the stored schema keys are rewritten as a set.
   private def mergeParameters(old: Map[String, String], updated: Map[String, String], removed: Set[String]) =
-    old.filterNot { case (k, _) => k.startsWith("spark.sql.sources.schema") } ++ updated -- removed
+    old.filterNot { case (k, _) => EntryConverter.isSchemaKey(k) } ++ updated -- removed
 
   private def update(n: Identifier, entry: GlueTableEntry, newEntry: GlueTableEntry, removed: Set[String]): Unit = {
-    val merged = newEntry.copy(tableType = entry.tableType.orElse(newEntry.tableType),
-      parameters = mergeParameters(entry.parameters, newEntry.parameters, removed))
+    val merged = named(n, newEntry).copy(parameters = mergeParameters(entry.parameters, newEntry.parameters, removed))
     guardTable(n, entry.versionId)(glue.updateTable(merged, entry.versionId, options.skipArchive))
   }
 
   override def alterTable(ident: Identifier, changes: TableChange*): Table = {
     val n = normalize(ident)
     val entry = loadEntry(n).getOrElse(throw missing(n))
+    rejectView(n, entry)
     val (table, removed) = applyPropertyChanges(EntryConverter.toCatalogTable(catalogName, entry), changes)
     val columnChanges = changes.filter {
       case _: TableChange.SetProperty | _: TableChange.RemoveProperty => false
@@ -195,9 +207,9 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
   }
 
   private def applyPropertyChanges(table: CatalogTable, changes: Seq[TableChange]): (CatalogTable, Set[String]) = {
-    def reserved(k: String) = if (Set("provider", "external", "collation")(k)) {
+    def reserved(k: String) = if (k == "provider" || k == "external") {
       throw new UnsupportedOperationException(s"Table property '$k' cannot be changed")
-    }
+    } else rejectOwnedKey(k)
     changes.foldLeft((table, Set.empty[String])) {
       case ((t, rm), s: TableChange.SetProperty) =>
         reserved(s.property)
@@ -222,11 +234,13 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
   def replaceTable(ident: Identifier, table: CatalogTable): Unit = {
     val n = normalize(ident)
     val entry = loadEntry(n).getOrElse(throw missing(n))
+    rejectView(n, entry)
     update(n, entry, EntryConverter.toGlueTable(table, schemaThreshold()), Set.empty)
   }
 
   override def dropTable(ident: Identifier): Boolean = {
     val n = normalize(ident)
+    loadEntry(n).foreach(rejectView(n, _))
     try { guardTable(n)(glue.deleteTable(single(n.namespace), n.name)); true }
     catch { case _: org.apache.spark.sql.catalyst.analysis.NoSuchTableException => false }
   }
@@ -238,8 +252,10 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
 
   override def renameTable(oldIdent: Identifier, newIdent: Identifier): Unit = {
     val o = normalize(oldIdent)
-    val n = normalize(newIdent)
+    // Spark passes an empty namespace for an unqualified `RENAME TO t2`.
+    val n = normalize(if (newIdent.namespace.isEmpty) Identifier.of(oldIdent.namespace, newIdent.name) else newIdent)
     val entry = loadEntry(o).getOrElse(throw missing(o))
+    rejectView(o, entry)
     if (loadEntry(n).isDefined) guardTable(n)(throw new GlueAlreadyExists(""))
     createEntry(n, entry.copy(database = single(n.namespace), name = n.name, versionId = None))
     try glue.deleteTable(single(o.namespace), o.name) catch {

@@ -159,4 +159,11 @@ class EntryConverterWriteSuite extends AnyFunSuite {
     assert(EntryConverter.toNamespaceMetadata(GlueDatabaseEntry("d", None, None, Map("k" -> "v"))).asScala ==
       Map("k" -> "v"))
   }
+
+  test("partitionProvider follows tracksPartitionsInCatalog") {
+    val base = ct("parquet", idNameDt, Seq("dt"), "s3://bucket-a/parquet/t")
+    assert(EntryConverter.toGlueTable(base, 4000).parameters("spark.sql.partitionProvider") == "filesystem")
+    assert(EntryConverter.toGlueTable(base.copy(tracksPartitionsInCatalog = true), 4000)
+      .parameters("spark.sql.partitionProvider") == "catalog")
+  }
 }

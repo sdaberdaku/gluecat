@@ -180,8 +180,8 @@ class GlueCoreCatalogTableSuite extends AnyFunSuite {
     val (c, glue) = fixture()
     create(c)
     val table = v1(c)
-    c.registerTable(id("u"), table.copy(identifier = table.identifier.copy(table = "u")))
-    assert(glue.getTable("db", "u").isDefined)
+    c.registerTable(id("u"), table.copy(identifier = table.identifier.copy(database = Some("Db"), table = "U")))
+    assert(glue.getTable("db", "u").exists(e => e.database == "db" && e.name == "u"))
     val e = glue.getTable("db", "t").get
     glue.updateTable(e.copy(parameters = e.parameters + ("trino_x" -> "1")), None, true)
     c.replaceTable(id("t"), table.copy(schema = schema.add("y", StringType)))
@@ -189,5 +189,56 @@ class GlueCoreCatalogTableSuite extends AnyFunSuite {
     assert(after.parameters("trino_x") == "1")
     assert(after.versionId.contains("3"))
     assert(v1(c).schema.fieldNames.toSeq == Seq("id", "y"))
+  }
+
+  test("alter rewrites TableType to EXTERNAL_TABLE") {
+    val (c, glue) = fixture()
+    create(c)
+    val e = glue.getTable("db", "t").get
+    glue.updateTable(e.copy(tableType = Some("MANAGED_TABLE")), None, true)
+    c.alterTable(id("t"), TableChange.setProperty("k", "v"))
+    assert(glue.getTable("db", "t").get.tableType.contains("EXTERNAL_TABLE"))
+  }
+
+  test("alter keeps bucket-spec parameters") {
+    val (c, glue) = fixture()
+    create(c)
+    val e = glue.getTable("db", "t").get
+    glue.updateTable(e.copy(parameters = e.parameters ++ Map("spark.sql.sources.schema.numBuckets" -> "4",
+      "spark.sql.sources.schema.bucketCol.0" -> "id")), None, true)
+    c.alterTable(id("t"), TableChange.setProperty("k", "v"))
+    val p = glue.getTable("db", "t").get.parameters
+    assert(p("spark.sql.sources.schema.numBuckets") == "4" && p("spark.sql.sources.schema.bucketCol.0") == "id")
+  }
+
+  test("catalog-owned keys cannot be set, unset or created") {
+    val (c, _) = fixture()
+    create(c)
+    intercept[UnsupportedOperationException](c.alterTable(id("t"), TableChange.setProperty("table_type", "ICEBERG")))
+    val e = intercept[UnsupportedOperationException](
+      c.alterTable(id("t"), TableChange.removeProperty("spark.sql.sources.provider")))
+    assert(e.getMessage.contains("spark.sql.sources.provider"))
+    intercept[UnsupportedOperationException](c.createTable(id("u"), schema, noParts,
+      props("location" -> "s3://bucket-a/u", "spark.sql.foo" -> "1")))
+  }
+
+  test("views cannot be dropped, renamed, altered or replaced") {
+    val (c, glue) = fixture()
+    create(c)
+    val tbl = v1(c)
+    glue.createTable(GlueTableEntry("db", "v", Some("VIRTUAL_VIEW"), None, None, Map.empty,
+      GlueStorage(None, None, None, None, Map.empty, Nil), Nil, None))
+    intercept[UnsupportedTableException](c.dropTable(id("v")))
+    intercept[UnsupportedTableException](c.renameTable(id("v"), id("w")))
+    intercept[UnsupportedTableException](c.alterTable(id("v"), TableChange.setProperty("k", "v")))
+    intercept[UnsupportedTableException](c.replaceTable(id("v"), tbl))
+    assert(glue.getTable("db", "v").isDefined)
+  }
+
+  test("rename with an unqualified target stays in the source namespace") {
+    val (c, _) = fixture()
+    create(c)
+    c.renameTable(id("t"), Identifier.of(Array.empty[String], "t2"))
+    assert(c.tableExists(id("t2")) && !c.tableExists(id("t")))
   }
 }

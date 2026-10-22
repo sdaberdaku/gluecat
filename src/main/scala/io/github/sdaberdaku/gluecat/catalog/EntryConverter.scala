@@ -25,6 +25,12 @@ object EntryConverter {
   private val NumPartsKey = s"$SchemaKey.numParts"
   private val NumPartColsKey = s"$SchemaKey.numPartCols"
 
+  private val SchemaKeyPattern =
+    s"${java.util.regex.Pattern.quote(SchemaKey)}(\\.(numParts|numPartCols)|\\.part\\.\\d+|\\.partCol\\.\\d+)?".r.pattern
+
+  /** The parameters this converter writes for the schema and partition columns (not bucket-spec keys). */
+  def isSchemaKey(key: String): Boolean = SchemaKeyPattern.matcher(key).matches()
+
   def location(entry: GlueTableEntry): Option[String] =
     entry.storage.serdeParameters.get("path")
       .orElse(entry.storage.location.filterNot(_.endsWith(PlaceholderSuffix)))
@@ -90,7 +96,7 @@ object EntryConverter {
       throw new IllegalArgumentException(s"table ${table.identifier} has no location")))
     val params = table.properties ++ Map(
       "EXTERNAL" -> "TRUE", Provider -> provider, "spark.sql.create.version" -> Some(table.createVersion).filter(_.nonEmpty).getOrElse(org.apache.spark.SPARK_VERSION),
-      "spark.sql.partitionProvider" -> "filesystem") ++ schemaParams(table.schema, schemaThreshold) ++
+      "spark.sql.partitionProvider" -> (if (table.tracksPartitionsInCatalog) "catalog" else "filesystem")) ++ schemaParams(table.schema, schemaThreshold) ++
       partitionParams(table.partitionColumnNames)
     val serdeParams = table.storage.properties ++ Map("serialization.format" -> "1", "path" -> uri)
 
