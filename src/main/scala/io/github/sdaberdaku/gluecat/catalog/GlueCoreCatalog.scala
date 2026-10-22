@@ -105,7 +105,7 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
         throw CatalogErrors.translate(catalogName, options.glueId, e, Some(ident), None, expected)
     }
 
-  private def missing(ident: Identifier): Throwable =
+  def missing(ident: Identifier): Throwable =
     CatalogErrors.translate(catalogName, options.glueId, new GlueEntityNotFound(""), Some(ident), None)
 
   private def qualified(ident: Identifier): String = (catalogName +: ident.namespace.toSeq :+ ident.name).mkString(".")
@@ -139,7 +139,7 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
   private val Mapped = Set("comment", "location", "owner")
 
   /** Keys the catalog owns (or cannot support) cannot be set or unset by users. */
-  private def rejectOwnedKey(k: String): Unit =
+  def rejectOwnedKey(k: String): Unit =
     if (k == "collation" || k.startsWith("spark.sql.") || EntryConverter.HiddenParameters(k) ||
       (TableProperties.ReservedKeys(k) && !Mapped(k))) {
       throw new UnsupportedOperationException(s"Table property '$k' is managed by the catalog and cannot be set or removed")

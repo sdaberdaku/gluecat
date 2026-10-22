@@ -11,7 +11,7 @@ import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 import io.github.sdaberdaku.gluecat.catalog.{DefaultNamespaceNotFoundException, GlueCoreCatalog}
-import io.github.sdaberdaku.gluecat.format.{FormatSupport, PassThroughFormatSupport}
+import io.github.sdaberdaku.gluecat.format.{DeltaFormatSupport, FormatSupport, PassThroughFormatSupport}
 import io.github.sdaberdaku.gluecat.glue.{GlueApi, SdkGlueApi}
 
 /** The catalog plugin users configure. Routes every call to the core catalog or to the format support.
@@ -48,7 +48,8 @@ class GlueCatalog extends TableCatalog with StagingTableCatalog with SupportsNam
   protected def newGlueApi(options: GlueCatalogOptions): GlueApi = SdkGlueApi(options)
 
   protected def newFormatSupport(core: GlueCoreCatalog, options: GlueCatalogOptions): FormatSupport =
-    new PassThroughFormatSupport(core)
+    if (DeltaFormatSupport.available) new DeltaFormatSupport(core, catalogName, options, sparkOptions)
+    else new PassThroughFormatSupport(core)
 
   // ---- SupportsNamespaces ----
 
