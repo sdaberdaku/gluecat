@@ -137,7 +137,7 @@ catalog can be configured while Glue is unreachable.
   user's provider unchecked.
 - Timeouts, retries and assume-role credential refresh use the AWS SDK v2 defaults (standard retry
   mode; the STS provider refreshes before expiry in the background). The README lists the concrete
-  values for the SDK version shipped. STS failures name the catalog and the role ARN.
+  values for the SDK version gluecat is built against. STS failures name the catalog and the role ARN.
 - `initialize` fails with a clear error on Spark versions below the supported floor (3.5.3 on the 3.5
   line) instead of failing later on the first non-Delta read.
 
@@ -236,8 +236,14 @@ The project has failed, even if it works, if it:
   releases).
 - Delta is optional (`provided`). Without Delta on the classpath the catalog still works for non-Delta
   tables; Delta tables then fail on load with a clear error.
-- The AWS SDK v2 (`glue`, `sts` and what they need) is relocated inside the jar and the published POM
-  declares no SDK dependency, so it never clashes with the SDK v2 bundle that `hadoop-aws` ships.
+- The AWS SDK v2 (`glue`, `sts`) is a `provided` dependency, as in Iceberg's `iceberg-aws`: the jar contains
+  no SDK classes and expects the SDK on the Spark classpath. gluecat compiles and tests against one SDK
+  version, 2.24.6: the `bundle` version that `hadoop-aws` 3.4.1 depends on, and Hadoop 3.4.1 is the oldest
+  Hadoop 3.4.x a supported Spark 4.x line bundles (Spark 4.0). Newer SDK versions on the classpath work
+  (SDK 2.x stays backward compatible); older ones are not supported.
+- On Spark 4.x, `hadoop-aws` (S3A) depends on the SDK v2 `bundle`, which already contains `glue` and `sts`.
+  Spark 3.5 bundles Hadoop 3.3.4, whose S3A uses SDK v1, so users add the SDK v2 modules themselves
+  (`--packages software.amazon.awssdk:glue:2.24.6,software.amazon.awssdk:sts:2.24.6`, or the `bundle`).
 - The repository is private until 1.0.0 and public afterwards. No company, customer, account or bucket
   names in code, docs, tests or fixtures.
 - A Maven Central version can never be deleted or overwritten. Semantic versioning from 1.0.0: the
@@ -259,6 +265,7 @@ The project has failed, even if it works, if it:
   full matrix of Spark and Delta versions. MiniStack implements Glue databases, tables and partitions,
   checks `VersionId` on `UpdateTable`, keeps state per account and region, and maps `AssumeRole`
   sessions to the role's account, so two catalogs with two roles get two separate Glue stores.
+- 2026-10-22: SDK relocation dropped (owner decision), see Constraints.
 
 ## Design
 
@@ -293,11 +300,7 @@ The code follows the SOLID principles, applied to the components above:
   - Entry converter: pure functions between Glue `Table` / `Database` and Spark `CatalogTable` /
     namespace metadata, with no I/O, so the format rules ("Glue entry format") are unit-testable alone.
   - Client factory: catalog options to a configured `GlueClient` (region, endpoint, credentials chain,
-    assume role, retries). It sets the HTTP client explicitly, `UrlConnectionHttpClient`, on both the
-    `GlueClient` and the `StsClient` behind the assume-role provider, so the SDK never discovers an HTTP
-    client through `ServiceLoader` and no Netty or Apache HTTP client is needed. The shaded jar still
-    merges `META-INF/services` files (`ServicesResourceTransformer`) for the SDK's other service-loaded
-    pieces.
+    assume role, retries).
   - Delta support: path-based creates, replaces and staging.
   - Error mapping: AWS exceptions to Spark exceptions.
 - Open/closed. Format behaviour plugs in behind a small format-support interface chosen at
@@ -500,20 +503,25 @@ Then:
 - One integration test per row of the operations table, for Delta and for Parquet, including the
   failure rows (PURGE, writes to Parquet, partition-tracked Parquet, Iceberg, views, Hive SerDe tables).
 - Two catalogs on two MiniStack accounts through `AssumeRole`, both holding the same `db.table`, to show
-  they stay separate. A test-only SDK `ExecutionInterceptor` records every Glue request, and the
-  isolation tests assert that no request carried a `CatalogId` other than the catalog's own.
+  they stay separate. A library-level request observer records every Glue request (operation,
+  `CatalogId`), and the isolation tests assert that no request carried a `CatalogId` other than the
+  catalog's own.
 - A `spark_catalog` backed by a separate Glue account in the same session, to show that no operation on
   our catalogs, including with the `UpdateCatalog` hook on, touches it.
 - `VersionId` conflict on two concurrent table alters (property and schema changes). Glue databases
   have no `VersionId`, so concurrent namespace alters are last-writer-wins; the README says so.
-- Credentials: default chain, assume role, custom provider class. The relocated jar must still find the
-  web identity provider in the `sts` module (simulate IRSA with a token file and MiniStack's STS, if it
-  supports `AssumeRoleWithWebIdentity`; otherwise at least check that the provider classes load from the
-  relocated jar).
-- Tests run against the shaded jar, not only the classes, so relocation problems show up. A packaging
-  test opens the shaded jar and checks that no unrelocated `software.amazon.awssdk` class is left, that
-  the `META-INF/services` files are merged and point at relocated classes, and that the credential
-  providers and the URL-connection HTTP client load from it.
+- Credentials: default chain, assume role, custom provider class, and IRSA web identity through the `sts`
+  module (simulate IRSA with a token file and MiniStack's STS, if it supports
+  `AssumeRoleWithWebIdentity`; otherwise at least check that the web identity provider class loads).
+- Integration tests run against the built jar, not only the classes. A packaging test opens the jar and
+  checks that it contains no `software/amazon/`, `org/reactivestreams/` or
+  `META-INF/services/software.amazon.*` entries and no signature files, and that `GlueCatalog.class` is
+  present; the published POM lists `glue` and `sts` as `provided` and nothing from the SDK at compile or
+  runtime scope.
+- A Trino container with the Delta Lake connector on the same MiniStack Glue reads, by name, a Delta table
+  gluecat created, including rows added by a later INSERT and a partitioned CTAS.
+- Spark 3.5 with the Glue Hive client (SDK v1, patched Hive) on the same MiniStack Glue reads gluecat's
+  Delta tables by name, and gluecat loads by name the Delta and Parquet tables that client created.
 - Both catalog modes (named catalog and `spark_catalog`) for every integration test, plus the default
   namespace cases: missing `default` gives the clear error, `default-namespace` and `USE <db>` work.
 
@@ -561,8 +569,9 @@ public (Actions minutes are free for public repositories), pushes to `main` run 
 - Some behaviour differs between Spark 3.5 and 4.x in ways the source checks above do not cover (for
   example `CatalogManager.setCurrentNamespace` was rewritten in 4.2). Every claim in this design that
   was checked against one Spark version must be covered by a test that runs on all of them.
-- Relocating the SDK can break things it finds by class name or service file at runtime. Covered by
-  testing the shaded jar.
+- SDK version drift between gluecat's compile version and the bundle on the user's classpath. Mitigation:
+  compile and test against the oldest supported bundle version (see Constraints), so the newer SDKs
+  that later Hadoop and Spark lines bring only add APIs; an older SDK is documented as unsupported.
 - Jobs that check `tableExists` very often (for example once per streaming micro-batch per table) cause
   one `GetTable` call each. If Glue throttling shows up, add a short-lived cache then, not before.
 - MiniStack is young and changes daily; a bug there can look like a bug here. Pin the version and
@@ -580,7 +589,7 @@ public (Actions minutes are free for public repositories), pushes to `main` run 
 - Columns written at create or replace time; SerDe `path` mirrored from Spark; for Delta, the real
   `StorageDescriptor.Location` and `table_type = DELTA` instead of Spark's placeholder, for Athena.
 - Database and table names lowercased in both directions.
-- `UrlConnectionHttpClient` set explicitly on the Glue and STS clients.
+- SDK default HTTP client; SDK `provided`.
 - Full CI matrix on tags and manual dispatch while the repository is private.
 - `VersionId` on every `UpdateTable`, `SkipArchive` from `glue.skip-archive`.
 - `GlueCatalog` implements `StagingTableCatalog` and runs Delta creates and replaces by path.

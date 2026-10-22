@@ -19,23 +19,20 @@ reads other data-source tables, without the Hive metastore client. Works as a na
 - One Maven module per artifact under `modules/spark-<minor>_<scala>/` (Spark 3.5 on Scala 2.12 and 2.13, Spark
   4.x on 2.13). Each module pins its Spark, Delta and Scala versions as properties; CI overrides them per matrix row.
 - `matrix.json` is the single source of the Spark × Delta × JDK test matrix.
-- The AWS SDK v2 is relocated inside the shaded jar under `io.github.sdaberdaku.gluecat.shaded.awssdk`; the published
-  POM declares no SDK dependency.
+- The AWS SDK v2 (`glue`, `sts`) is `provided` at version 2.24.6; the jar contains no SDK classes.
 
 ## Commands
 
 - Glue/STS/IAM emulator for tests: `docker run -d --rm --name ministack -p 4566:4566 ministackorg/ministack:<pinned version>`
 - Unit tests: `./mvnw -pl modules/spark-4.1_2.13 -DskipITs test`
-- Unit tests, shaded jar and integration tests against the jar: `./mvnw -pl modules/spark-4.1_2.13 verify`
+- Unit tests, jar and integration tests against the jar: `./mvnw -pl modules/spark-4.1_2.13 verify`
 - Other Spark lines: replace the module directory; override versions with `-Dspark.version=... -Ddelta.version=...`.
 - JDK 17 builds every module; CI runs each module on every JDK its Spark line supports.
 
 ## Conventions
 
 - Unit tests are `*Suite` classes (surefire, run against `target/classes`); integration tests are `*IT` classes
-  (failsafe, run against the shaded jar). Integration tests never pass `software.amazon.awssdk.*` objects into the
-  library and never implement its SDK-typed signatures, because the SDK inside the jar is relocated; they use the
-  library's option-based factories or their own SDK client straight against the emulator.
+  (failsafe, run against the module's jar).
 - Never reference Spark's `private[sql]` objects (`CatalogV2Util`, `V1Table`, `IdentityTransform`); use reflection
   bridges and the public `Transform` / `Expressions` APIs.
 - Delta creates and replaces run with path identifiers (``delta.`<location>` ``), never with a catalog identifier,
