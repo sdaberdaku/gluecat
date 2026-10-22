@@ -41,6 +41,3 @@ Thumbs.db
 # Local
 *.local
 .env
-
-# Claude Code personal settings
-.claude/settings.local.json
