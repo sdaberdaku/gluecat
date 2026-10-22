@@ -45,8 +45,9 @@ class GlueCoreCatalogTableSuite extends AnyFunSuite {
     val (c, _) = fixture()
     val spec = TableProperties.split(props(), "parquet")
     assert(c.resolveLocation(id("t"), spec) == "s3://bucket-a/db/t")
-    val (c2, _) = fixture("warehouse" -> "s3://bucket-a/wh/")
-    c2.createNamespace(Array("db2"), props())
+    // a database another tool created without a location falls back to the warehouse
+    val (c2, glue2) = fixture("warehouse" -> "s3://bucket-a/wh/")
+    glue2.createDatabase(GlueDatabaseEntry("db2", None, None, Map.empty))
     assert(c2.resolveLocation(Identifier.of(Array("db2"), "t"), spec) == "s3://bucket-a/wh/db2.db/t")
     val (c3, _) = fixture()
     c3.createNamespace(Array("db2"), props())

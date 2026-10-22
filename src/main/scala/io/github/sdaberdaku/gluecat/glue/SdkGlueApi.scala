@@ -141,12 +141,15 @@ class SdkGlueApi(client: GlueClient, catalogId: Option[String], observer: GlueRe
     val s = t.storage
     val serde = SerDeInfo.builder().parameters(s.serdeParameters.asJava)
     s.serdeLibrary.foreach(serde.serializationLibrary)
+    // Retention, Compressed, NumberOfBuckets and StoredAsSubDirectories as Hive's Table.getEmptyTable sets them, which
+    // is what Spark's Hive path writes; the Glue Hive client unboxes all four on read.
     val sd = StorageDescriptor.builder().serdeInfo(serde.build()).columns(s.columns.map(toColumn).asJava)
+      .compressed(false).numberOfBuckets(-1).storedAsSubDirectories(false)
     s.location.foreach(sd.location)
     s.inputFormat.foreach(sd.inputFormat)
     s.outputFormat.foreach(sd.outputFormat)
     val b = TableInput.builder().name(t.name).parameters(t.parameters.asJava).storageDescriptor(sd.build())
-      .partitionKeys(t.partitionKeys.map(toColumn).asJava)
+      .partitionKeys(t.partitionKeys.map(toColumn).asJava).retention(0)
     t.tableType.foreach(b.tableType)
     t.description.foreach(b.description)
     t.owner.foreach(b.owner)

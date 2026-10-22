@@ -176,6 +176,23 @@ class SdkGlueApiSuite extends AnyFunSuite {
     assert(seen.head.skipArchive() == true)
   }
 
+  test("create and update write Retention, Compressed, NumberOfBuckets and StoredAsSubDirectories as Hive does") {
+    val inputs = ArrayBuffer.empty[TableInput]
+    val stub = new Stub {
+      override def createTable(r: CreateTableRequest): CreateTableResponse = { inputs += r.tableInput(); CreateTableResponse.builder().build() }
+      override def updateTable(r: UpdateTableRequest): UpdateTableResponse = { inputs += r.tableInput(); UpdateTableResponse.builder().build() }
+    }
+    val api = new SdkGlueApi(stub, Some(Cat), GlueRequestObserver.Noop)
+    api.createTable(entry)
+    api.updateTable(entry, Some("3"), skipArchive = true)
+    assert(inputs.size == 2)
+    inputs.foreach { in =>
+      val sd = in.storageDescriptor()
+      assert((in.retention(), sd.compressed(), sd.numberOfBuckets(), sd.storedAsSubDirectories()) ==
+        ((0, false, -1, false)))
+    }
+  }
+
   test("model round trip") {
     val created = ArrayBuffer.empty[CreateTableRequest]
     val stored = ArrayBuffer.empty[TableInput]

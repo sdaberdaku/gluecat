@@ -58,9 +58,14 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
       EntryConverter.toNamespaceMetadata(db.getOrElse(throw new GlueEntityNotFound("")))
     }
 
+  /** Without a `location`, the database is placed at `<warehouse>/<db>.db` when the catalog has a warehouse, as
+    * Spark's session catalog does: Spark's Hive path cannot create data source tables in a database without one. */
   override def createNamespace(namespace: Array[String], metadata: java.util.Map[String, String]): Unit = {
     val db = single(namespace)
-    guardNamespace(namespace)(glue.createDatabase(EntryConverter.toGlueDatabase(db, metadata)))
+    val entry = EntryConverter.toGlueDatabase(db, metadata)
+    val placed = if (entry.locationUri.isDefined) entry
+    else entry.copy(locationUri = options.warehouse.map(join(_, s"$db.db")))
+    guardNamespace(namespace)(glue.createDatabase(placed))
   }
 
   override def alterNamespace(namespace: Array[String], changes: NamespaceChange*): Unit = {
@@ -146,12 +151,13 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
     val n = normalize(ident)
     val db = single(n.namespace)
     val database = guardNamespace(n.namespace)(glue.getDatabase(db).getOrElse(throw new GlueEntityNotFound("")))
-    def join(base: String, rest: String) = base.stripSuffix("/") + "/" + rest
     database.locationUri.map(join(_, n.name))
       .orElse(options.warehouse.map(join(_, s"$db.db/${n.name}")))
       .getOrElse(throw new IllegalArgumentException(
         s"Cannot place table ${qualified(n)}: no location given, database $db has no location and the catalog has no warehouse option"))
   }
+
+  private def join(base: String, rest: String) = base.stripSuffix("/") + "/" + rest
 
   private val Mapped = Set("comment", "location", "owner")
 

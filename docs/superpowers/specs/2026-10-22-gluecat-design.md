@@ -157,7 +157,9 @@ until it is exhausted; a test lists a database with more than 100 tables.
 ### Namespaces (Glue databases)
 
 The full `SupportsNamespaces` contract for single-level namespaces: list, exists, load metadata, create
-(with comment, location, properties), alter (set or remove properties, comment, location), drop (an
+(with comment, location, properties; without a location and with `warehouse` set, `LocationUri` =
+`<warehouse>/<db>.db`, as Spark's session catalog places databases: Spark's Hive path puts a data source table's
+placeholder under the database location and cannot create one in a database without it), alter (set or remove properties, comment, location), drop (an
 empty database; with `CASCADE`, Glue's `DeleteDatabase` removes the database's table entries; table data is never
 deleted). Multi-level
 namespaces do not exist in Glue: `listNamespaces(ns)` for a non-empty `ns` returns nothing, and creating
@@ -430,6 +432,10 @@ too:
 - `StorageDescriptor.Columns`: the table's columns at create, replace, `ALTER TABLE` column change or
   `REFRESH TABLE` time (name and Spark `catalogString` type). No `PartitionKeys`.
 - User table properties as Glue parameters.
+- `Retention` 0, and `Compressed` false, `NumberOfBuckets` -1, `StoredAsSubDirectories` false in the
+  `StorageDescriptor`, written as Hive does (`Table.getEmptyTable`); the Glue Hive client unboxes them on read. An
+  `UpdateTable` rewrites them, so bucketed legacy entries lose their bucket count, consistent with the model dropping
+  bucket columns.
 
 `classification` is not set: Athena's Delta documentation does not use it, and it is a Glue crawler and
 ETL convention.

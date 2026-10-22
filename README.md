@@ -137,7 +137,7 @@ Options go under `spark.sql.catalog.<name>.`. More detail:
 | `client.assume-role.session-name` | `gluecat` | Role session name. |
 | `client.assume-role.region` | `client.region` | STS region. |
 | `client.assume-role.timeout-sec` | `3600` | Session duration in seconds; a positive integer. |
-| `warehouse` | not set | Location of managed tables in databases without a location: `<warehouse>/<db>.db/<table>`. |
+| `warehouse` | not set | Location of databases created without one (`<warehouse>/<db>.db`), and of managed tables in databases without a location: `<warehouse>/<db>.db/<table>`. |
 | `default-namespace` | `default` | Database of unqualified table names. Named catalogs only: as `spark_catalog`, Spark takes the current namespace from its built-in session catalog (`default` until `USE`). |
 
 Unknown options under `glue.` and `client.` log a warning and are ignored (Spark passes every
@@ -201,8 +201,10 @@ changes) are covered by unit tests. More detail:
 
 Path-based Delta operations (`` delta.`s3://...` ``) involve no catalog and work as before.
 
-Databases: `CREATE DATABASE` (comment, location, properties), `ALTER DATABASE`, `DROP DATABASE` (with `CASCADE`, Glue's
-`DeleteDatabase` removes the database's table entries; table data is never deleted), `SHOW DATABASES` and `USE`. Glue has single-level namespaces only.
+Databases: `CREATE DATABASE` (comment, location, properties; without a location and with `warehouse` set, the database
+is placed at `<warehouse>/<db>.db`, because Spark's Hive path cannot create tables in a database without one),
+`ALTER DATABASE`, `DROP DATABASE` (with `CASCADE`, Glue's `DeleteDatabase` removes the database's table entries; table
+data is never deleted), `SHOW DATABASES` and `USE`. Glue has single-level namespaces only.
 Database and table names are lowercased (Glue stores them in lowercase), so `acct_a.MyDb.MyTable` and
 `acct_a.mydb.mytable` are the same table; column names keep their case.
 

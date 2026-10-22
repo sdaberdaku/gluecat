@@ -29,6 +29,17 @@ class GlueCoreCatalogNamespaceSuite extends AnyFunSuite {
     assert(m("comment") == "c" && m("location") == "s3://bucket-a/db" && m("team") == "x")
   }
 
+  test("createNamespace without a location uses <warehouse>/<db>.db, or none without a warehouse") {
+    val (withWarehouse, glueA) = fixture("warehouse" -> "s3://bucket-a/wh/")
+    withWarehouse.createNamespace(Array("Db"), empty)
+    withWarehouse.createNamespace(Array("given"), md("location" -> "s3://bucket-a/given"))
+    assert(glueA.getDatabase("db").flatMap(_.locationUri).contains("s3://bucket-a/wh/db.db"))
+    assert(glueA.getDatabase("given").flatMap(_.locationUri).contains("s3://bucket-a/given"))
+    val (without, glueB) = fixture()
+    without.createNamespace(Array("db"), empty)
+    assert(glueB.getDatabase("db").exists(_.locationUri.isEmpty))
+  }
+
   test("names are lowercased") {
     val (c, _) = fixture()
     c.createNamespace(Array("MyDb"), empty)
