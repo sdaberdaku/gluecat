@@ -409,7 +409,7 @@ too:
   `spark.sql.partitionProvider = filesystem`.
 - `spark.sql.sources.schema = <schema JSON>`, split into `spark.sql.sources.schema.numParts` and
   `spark.sql.sources.schema.part.N` when it exceeds Spark's length threshold. Partition columns in
-  `spark.sql.sources.numPartCols` / `spark.sql.sources.partCol.N`.
+  `spark.sql.sources.schema.numPartCols` / `spark.sql.sources.schema.partCol.N`.
 - The real location in the SerDe parameter `path`, which Trino's Delta connector and Spark's Hive path
   read first.
 - Delta tables: `StorageDescriptor.Location` = the real location (not Spark's `-__PLACEHOLDER__`
