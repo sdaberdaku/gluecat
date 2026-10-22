@@ -42,8 +42,8 @@ patched Hive jars, AWS SDK for Java v2.
 ## Goals for 1.0.0
 
 1.0.0 is done when the full CI matrix (below) passes and 1.0.0 is published on Maven Central, one
-artifact per supported Spark minor and Scala version, with the README documenting configuration and the
-known limitations:
+artifact per supported Spark minor and Scala version, with the README and the documentation site documenting
+configuration and the known limitations:
 
 | Artifact | Spark | Scala | Java bytecode | JDKs tested |
 |---|---|---|---|---|
@@ -549,6 +549,8 @@ public (Actions minutes are free for public repositories), pushes to `main` run 
   table above, all with the same version, as one Central deployment. Sources jar, javadoc jar (scaladoc), GPG
   signatures and the POM metadata Central requires (license, developer, SCM).
 - The same jar is attached to a GitHub Release for the tag.
+- Documentation is published to GitHub Pages from `docs/site/` by `.github/workflows/pages.yml`; the site goes live
+  once the repository is public.
 - Flip the repository to public before tagging v1.0.0.
 
 ## Known limitations to document in the README
