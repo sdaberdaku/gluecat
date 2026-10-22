@@ -33,10 +33,7 @@ class GlueCatalog extends TableCatalog with StagingTableCatalog with SupportsNam
     try {
       SparkVersionCheck.requireSupported(SPARK_VERSION)
       glueOptions = GlueCatalogOptions.parse(name, options.asCaseSensitiveMap)
-      if (SparkSession.active.conf.get("spark.databricks.delta.catalog.update.enabled", "false").toBoolean) {
-        throw new IllegalStateException(
-          "disable spark.databricks.delta.catalog.update.enabled; Delta's UpdateCatalog hook writes through spark_catalog")
-      }
+      DeltaFormatSupport.requireUpdateCatalogHookOff()
       core = new GlueCoreCatalog(name, newGlueApi(glueOptions), glueOptions,
         () => SparkSession.active.conf.get("spark.sql.sources.schemaStringLengthThreshold", "4000").toInt)
       format = newFormatSupport(core, glueOptions)

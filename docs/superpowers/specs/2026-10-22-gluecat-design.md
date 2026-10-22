@@ -471,7 +471,8 @@ entry, which is an anti-goal.
 
 The builder tests what the hook does with our tables when the setting is on and `spark_catalog` has a
 same-named table. If it can touch the session catalog's entry, `GlueCatalog.initialize` fails with a
-clear error while the setting is on. If it is harmless, a README note is enough.
+clear error while the setting is on. If it is harmless, a README note is enough. The setting is a runtime
+SQL conf, so the check runs at `initialize` and again before every Delta operation by name.
 
 ### Errors
 

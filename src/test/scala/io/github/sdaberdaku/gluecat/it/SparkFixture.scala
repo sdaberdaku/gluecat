@@ -49,12 +49,12 @@ abstract class SparkIT(mode: Mode) extends AnyFunSuite with BeforeAndAfterAll {
       .config("spark.sql.warehouse.dir", s"$root/spark-warehouse")
       .config("spark.sql.catalogImplementation", "in-memory")
     if (mode == Named) b.config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
-    val shared = Map(
-      "glue.id" -> "111111111111",
-      "client.region" -> "eu-central-1",
-      "glue.endpoint" -> MiniStack.Endpoint,
-      "warehouse" -> s"file:$root/wh")
     (otherCatalogs + (cat -> catalogOptions)).foreach { case (name, own) =>
+      val shared = Map(
+        "glue.id" -> "111111111111",
+        "client.region" -> "eu-central-1",
+        "glue.endpoint" -> MiniStack.Endpoint,
+        "warehouse" -> s"file:$root/wh/$name")
       b.config(s"spark.sql.catalog.$name", classOf[TestGlueCatalog].getName)
       (shared ++ own).foreach { case (k, v) => b.config(s"spark.sql.catalog.$name.$k", v) }
     }

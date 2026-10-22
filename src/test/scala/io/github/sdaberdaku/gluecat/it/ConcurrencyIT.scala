@@ -19,7 +19,6 @@ import io.github.sdaberdaku.gluecat.glue.SdkGlueApi
 class ConcurrencyIT extends AnyFunSuite with BeforeAndAfterAll {
   private val options = GlueCatalogOptions.parse("acct_a", Map(
     "glue.id" -> "111111111111", "client.region" -> "eu-central-1", "glue.endpoint" -> MiniStack.Endpoint).asJava)
-  private def core() = new GlueCoreCatalog("acct_a", SdkGlueApi(options), options, () => 4000)
   private val glue = new GlueInspector("111111111111")
   private val t = Identifier.of(Array("db"), "t")
 
@@ -31,8 +30,14 @@ class ConcurrencyIT extends AnyFunSuite with BeforeAndAfterAll {
   override def afterAll(): Unit = glue.close()
 
   test("an alter built from a stale read fails with the expected VersionId and changes nothing") {
-    val first = core()
-    val second = core()
+    val apis = Seq.fill(2)(SdkGlueApi(options))
+    try alterFromStaleRead(apis.map(new GlueCoreCatalog("acct_a", _, options, () => 4000)))
+    finally apis.foreach(_.close())
+  }
+
+  private def alterFromStaleRead(cores: Seq[GlueCoreCatalog]): Unit = {
+    val first = cores(0)
+    val second = cores(1)
     first.createNamespace(Array("db"), Map.empty[String, String].asJava)
     first.createTable(t, new StructType().add("id", IntegerType), Array.empty[Transform],
       Map("provider" -> "parquet", "location" -> "s3://bucket-a/db/t").asJava)

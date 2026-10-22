@@ -60,6 +60,8 @@ class CredentialsIT extends SparkIT(Named) {
   }
 
   test("IRSA-style web identity") {
+    // Environment keys come before web identity in the default chain.
+    assume(sys.env.get("AWS_ACCESS_KEY_ID").isEmpty)
     val iam = IamClient.builder().region(Region.AWS_GLOBAL).endpointOverride(URI.create(MiniStack.Endpoint))
       .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create("222222222222", "test"))).build()
     try iam.createRole(CreateRoleRequest.builder().roleName("glue-irsa").assumeRolePolicyDocument(

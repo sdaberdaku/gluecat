@@ -50,6 +50,10 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
 
   private def onPath[T](f: => T): T = { requireSqlOnFiles(); f }
 
+  // The setting is a runtime conf: GlueCatalog.initialize checks it, and so does every Delta operation by name.
+  private def requireHookOff(ident: Identifier): Unit =
+    if (!isPath(ident)) DeltaFormatSupport.requireUpdateCatalogHookOff()
+
   private def qualified(ident: Identifier): String = {
     val n = core.normalize(ident)
     (catalogName +: n.namespace.toSeq :+ n.name).mkString(".")
@@ -57,9 +61,10 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
 
   // ---- load ----
 
-  override def loadTable(ident: Identifier): Table = delta.loadTable(ident)
-  override def loadTable(ident: Identifier, version: String): Table = delta.loadTable(ident, version)
-  override def loadTable(ident: Identifier, timestamp: Long): Table = delta.loadTable(ident, timestamp)
+  // Every write by name loads the table first.
+  override def loadTable(ident: Identifier): Table = { requireHookOff(ident); delta.loadTable(ident) }
+  override def loadTable(ident: Identifier, version: String): Table = { requireHookOff(ident); delta.loadTable(ident, version) }
+  override def loadTable(ident: Identifier, timestamp: Long): Table = { requireHookOff(ident); delta.loadTable(ident, timestamp) }
 
   // ---- create and replace ----
 
@@ -128,6 +133,7 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
   override def createTable(ident: Identifier, schema: StructType, partitions: Array[Transform],
       properties: java.util.Map[String, String]): Table = {
     if (isPath(ident)) return onPath(delta.createTable(ident, schema, partitions, properties))
+    requireHookOff(ident)
     val spec = TableProperties.split(properties, "parquet")
     if (!isDelta(spec.provider)) return core.createTable(ident, schema, partitions, properties)
     requireSqlOnFiles()
@@ -145,6 +151,7 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
   override def stageCreate(ident: Identifier, schema: StructType, partitions: Array[Transform],
       properties: java.util.Map[String, String]): StagedTable = {
     if (isPath(ident)) return onPath(staging.stageCreate(ident, schema, partitions, properties))
+    requireHookOff(ident)
     val spec = deltaSpec(properties)
     staged(ident, prepareCreate(ident, spec), spec, replace = false)(
       staging.stageCreate(_, schema, partitions, deltaProps(properties)))
@@ -153,6 +160,7 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
   override def stageReplace(ident: Identifier, schema: StructType, partitions: Array[Transform],
       properties: java.util.Map[String, String]): StagedTable = {
     if (isPath(ident)) return onPath(staging.stageReplace(ident, schema, partitions, properties))
+    requireHookOff(ident)
     val spec = deltaSpec(properties)
     val location = existingLocation(ident, spec).getOrElse(throw core.missing(core.normalize(ident)))
     staged(ident, location, spec, replace = true)(staging.stageReplace(_, schema, partitions, deltaProps(properties)))
@@ -161,6 +169,7 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
   override def stageCreateOrReplace(ident: Identifier, schema: StructType, partitions: Array[Transform],
       properties: java.util.Map[String, String]): StagedTable = {
     if (isPath(ident)) return onPath(staging.stageCreateOrReplace(ident, schema, partitions, properties))
+    requireHookOff(ident)
     val spec = deltaSpec(properties)
     val existing = existingLocation(ident, spec)
     staged(ident, existing.getOrElse(prepareCreate(ident, spec)), spec, replace = existing.isDefined)(
@@ -171,6 +180,7 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
 
   override def alterTable(ident: Identifier, changes: Seq[TableChange]): Table = {
     if (isPath(ident)) return delta.alterTable(ident, changes: _*)
+    requireHookOff(ident)
     val entry = core.loadEntry(ident).getOrElse(throw core.missing(core.normalize(ident)))
     if (!isDeltaEntry(entry)) return core.alterTable(ident, changes: _*)
     // Delta's SET LOCATION writes through spark_catalog, so the location goes to the Glue entry only, in one update
@@ -238,6 +248,14 @@ object DeltaFormatSupport {
   }
 
   def deltaCatalogClass(): Class[_] = Class.forName(DeltaCatalogClass, true, loader)
+
+  /** Delta's UpdateCatalog hook writes through the session's v1 catalog (spark_catalog), so nothing may run while it is
+    * enabled. */
+  def requireUpdateCatalogHookOff(): Unit =
+    if (SparkSession.active.conf.get("spark.databricks.delta.catalog.update.enabled", "false").toBoolean) {
+      throw new IllegalStateException(
+        "disable spark.databricks.delta.catalog.update.enabled; Delta's UpdateCatalog hook writes through spark_catalog")
+    }
 
   def available: Boolean =
     try { deltaCatalogClass(); true } catch { case _: ClassNotFoundException => false }

@@ -8,6 +8,8 @@ import org.scalatestplus.junit.JUnitRunner
 import io.github.sdaberdaku.gluecat.glue.StaticKeyCredentialsProvider
 
 object IsolationIT {
+  val HookConf = "spark.databricks.delta.catalog.update.enabled"
+
   val Writes = Set("CreateTable", "UpdateTable", "DeleteTable", "CreateDatabase", "UpdateDatabase", "DeleteDatabase")
 
   /** A catalog on account 999 through the static-key provider, so nothing else can reach that account. */
@@ -56,11 +58,12 @@ class IsolationIT extends SparkIT(Named) {
   }
 
   test("every recorded request carried its own CatalogId") {
+    Seq("acct_a", "acct_b").foreach(c => spark.sql(s"CREATE DATABASE $c.db_w"))
     Seq("acct_a", "acct_b", "spark_catalog").foreach(c => spark.sql(s"SHOW NAMESPACES IN $c").collect())
     val recorded = TestGlueCatalog.recorded.asScala.toList
     def of(catalog: String) = recorded.filter(_._1 == catalog)
-    assert(of("acct_a").nonEmpty && of("acct_a").forall(_._3.contains("111111111111")))
-    assert(of("acct_b").nonEmpty && of("acct_b").forall(_._3.contains("222222222222")))
+    assert(of("acct_a").exists(r => Writes(r._2)) && of("acct_a").forall(_._3.contains("111111111111")))
+    assert(of("acct_b").exists(r => Writes(r._2)) && of("acct_b").forall(_._3.contains("222222222222")))
     assert(of("spark_catalog").nonEmpty && of("spark_catalog").forall(_._3.contains("999999999999")))
     assert(of("spark_catalog").map(_._2).filter(Writes).isEmpty)
   }
@@ -68,11 +71,26 @@ class IsolationIT extends SparkIT(Named) {
   test("UpdateCatalog hook on makes initialize fail") {
     startSession()
     try {
-      spark.conf.set("spark.databricks.delta.catalog.update.enabled", "true")
+      spark.conf.set(HookConf, "true")
       val e = intercept[Exception](spark.sql("SHOW NAMESPACES IN acct_a").collect())
       val message = fullMessage(e)
       assert(message.contains("catalog.update.enabled"))
       assert(message.contains("gluecat catalog 'acct_a'"))
     } finally startSession()
+  }
+
+  test("UpdateCatalog hook turned on at runtime is refused before every Delta operation by name") {
+    spark.sql("CREATE DATABASE acct_a.hook")
+    spark.sql(s"CREATE TABLE acct_a.hook.t (id INT) USING delta LOCATION '${tempDir()}'")
+    spark.sql("INSERT INTO acct_a.hook.t VALUES (1)")
+    try {
+      spark.conf.set(HookConf, "true")
+      Seq("INSERT INTO acct_a.hook.t VALUES (2)", "SELECT * FROM acct_a.hook.t").foreach { q =>
+        assert(fullMessage(intercept[Exception](spark.sql(q).collect())).contains("catalog.update.enabled"), q)
+      }
+      spark.conf.set(HookConf, "false")
+      spark.sql("INSERT INTO acct_a.hook.t VALUES (3)")
+      assert(spark.table("acct_a.hook.t").count() == 2)
+    } finally spark.conf.unset(HookConf)
   }
 }
