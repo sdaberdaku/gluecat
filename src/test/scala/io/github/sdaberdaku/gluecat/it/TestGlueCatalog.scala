@@ -21,6 +21,12 @@ object TestGlueCatalog {
   def failNext(catalogName: String, operation: String, exception: Throwable): Unit =
     failures.put((catalogName, operation), exception)
 
+  /** Every suite runs in the same JVM and reuses catalog names, so each session starts from nothing. */
+  def reset(): Unit = {
+    recorded.clear()
+    failures.clear()
+  }
+
   final case class Recorder(catalogName: String) extends GlueRequestObserver {
     override def onRequest(operation: String, catalogId: Option[String]): Unit =
       recorded.add((catalogName, operation, catalogId))

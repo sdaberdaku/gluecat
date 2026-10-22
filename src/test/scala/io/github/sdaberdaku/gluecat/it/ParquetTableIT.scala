@@ -42,11 +42,13 @@ abstract class ParquetTableIT(mode: Mode) extends SparkIT(mode) {
   // The plan expected this to fail. Spark (3.5.9 and 4.1.3, RelationResolution.createRelation) resolves a V1Table
   // whose partitions are not tracked in a catalog through its V1 file source path in both modes, so INSERT writes
   // files at the table location; the catalog is not called and the Glue entry stays as it was.
-  test("INSERT INTO a parquet table writes files at its location and leaves the Glue entry alone") {
+  test("INSERT INTO and INSERT OVERWRITE a parquet table write files at its location and leave the Glue entry alone") {
     createParquet("p_insert")
     val before = glue.getTable("db", "p_insert").versionId()
     spark.sql(s"INSERT INTO ${tbl("db", "p_insert")} VALUES (1, 'a')")
     assert(count("p_insert") == 1)
+    spark.sql(s"INSERT OVERWRITE ${tbl("db", "p_insert")} VALUES (2, 'b'), (3, 'c')")
+    assert(count("p_insert") == 2)
     assert(glue.getTable("db", "p_insert").versionId() == before)
   }
 

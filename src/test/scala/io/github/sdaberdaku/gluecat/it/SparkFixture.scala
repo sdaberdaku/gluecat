@@ -35,6 +35,7 @@ abstract class SparkIT(mode: Mode) extends AnyFunSuite with BeforeAndAfterAll {
   /** Stops the current session and starts one with `catalogOptions` added to the catalog's options. */
   protected def startSession(catalogOptions: Map[String, String] = Map.empty): Unit = {
     stopSession()
+    TestGlueCatalog.reset()
     val b = SparkSession.builder().master("local[2]").appName(getClass.getSimpleName)
       .config("spark.ui.enabled", "false")
       .config("spark.sql.shuffle.partitions", "2")
@@ -70,9 +71,14 @@ abstract class SparkIT(mode: Mode) extends AnyFunSuite with BeforeAndAfterAll {
   }
 
   override def afterAll(): Unit =
-    try {
-      stopSession()
-      glue.close()
-      Files.walk(root).iterator().asScala.toList.reverse.foreach(p => Files.deleteIfExists(p))
-    } finally super.afterAll()
+    try stopSession()
+    finally try glue.close()
+    finally try deleteRecursively(root)
+    finally super.afterAll()
+
+  private def deleteRecursively(dir: Path): Unit = {
+    val paths = Files.walk(dir)
+    try paths.iterator().asScala.toList.reverse.foreach(p => Files.deleteIfExists(p))
+    finally paths.close()
+  }
 }

@@ -17,6 +17,11 @@ abstract class DefaultNamespaceIT(mode: Mode) extends SparkIT(mode) {
 
   test("default-namespace selects the database of unqualified names") {
     startSession(Map("default-namespace" -> "main"))
+    try selectsMain()
+    finally startSession()
+  }
+
+  private def selectsMain(): Unit = {
     spark.sql(s"CREATE DATABASE $cat.main")
     spark.sql(s"USE $cat")
     mode match {

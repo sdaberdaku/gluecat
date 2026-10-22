@@ -11,6 +11,13 @@ abstract class NamespaceIT(mode: Mode) extends SparkIT(mode) {
   private def createParquet(db: String, t: String): Unit =
     spark.sql(s"CREATE TABLE ${tbl(db, t)} (id INT) USING parquet LOCATION '${tempDir()}'")
 
+  // Runs first: the catalog is loaded on the first statement, so nothing is recorded before it.
+  test("Glue requests are recorded per session, starting empty") {
+    assert(TestGlueCatalog.recorded.isEmpty)
+    spark.sql(s"SHOW DATABASES IN $cat").collect()
+    assert(TestGlueCatalog.recorded.contains((cat, "GetDatabases", Some("111111111111"))))
+  }
+
   test("CREATE DATABASE with comment, location and properties") {
     val loc = tempDir()
     spark.sql(s"CREATE DATABASE $cat.ns_create COMMENT 'first' LOCATION '$loc' WITH DBPROPERTIES ('k1'='v1')")
