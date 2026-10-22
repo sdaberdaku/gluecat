@@ -1,0 +1,39 @@
+{
+  "database": "db",
+  "name": "t",
+  "tableType": "EXTERNAL_TABLE",
+  "parameters": {
+    "spark.sql.sources.provider": "parquet",
+    "spark.sql.sources.schema": "{\"type\":\"struct\",\"fields\":[{\"name\":\"id\",\"type\":\"long\",\"nullable\":true,\"metadata\":{}},{\"name\":\"name\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}},{\"name\":\"dt\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]}",
+    "spark.sql.sources.schema.numPartCols": "1",
+    "spark.sql.sources.schema.partCol.0": "dt",
+    "spark.sql.partitionProvider": "catalog"
+  },
+  "storage": {
+    "location": "s3://bucket-a/parquet/t",
+    "inputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+    "outputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat",
+    "serdeLibrary": "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe",
+    "serdeParameters": {
+      "serialization.format": "1",
+      "path": "s3://bucket-a/parquet/t"
+    },
+    "columns": [
+      {
+        "name": "id",
+        "dataType": "bigint"
+      },
+      {
+        "name": "name",
+        "dataType": "string"
+      }
+    ]
+  },
+  "partitionKeys": [
+    {
+      "name": "dt",
+      "dataType": "string"
+    }
+  ],
+  "versionId": "0"
+}

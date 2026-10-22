@@ -1,0 +1,37 @@
+{
+  "database": "db",
+  "name": "t",
+  "tableType": "EXTERNAL_TABLE",
+  "parameters": {
+    "EXTERNAL": "TRUE",
+    "table_type": "DELTA",
+    "spark.sql.sources.provider": "delta",
+    "spark.sql.partitionProvider": "filesystem",
+    "spark.sql.sources.schema": "{\"type\":\"struct\",\"fields\":[{\"name\":\"id\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}},{\"name\":\"amount\",\"type\":\"decimal(18,2)\",\"nullable\":true,\"metadata\":{}},{\"name\":\"ts\",\"type\":\"timestamp\",\"nullable\":true,\"metadata\":{}}]}"
+  },
+  "storage": {
+    "location": "s3://bucket-a/delta/t",
+    "inputFormat": "org.apache.hadoop.mapred.SequenceFileInputFormat",
+    "outputFormat": "org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat",
+    "serdeLibrary": "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe",
+    "serdeParameters": {
+      "path": "s3://bucket-a/delta/t"
+    },
+    "columns": [
+      {
+        "name": "id",
+        "dataType": "string"
+      },
+      {
+        "name": "amount",
+        "dataType": "decimal(18,2)"
+      },
+      {
+        "name": "ts",
+        "dataType": "timestamp"
+      }
+    ]
+  },
+  "partitionKeys": [],
+  "versionId": "0"
+}

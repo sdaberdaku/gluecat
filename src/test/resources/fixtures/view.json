@@ -1,0 +1,21 @@
+{
+  "database": "db",
+  "name": "t",
+  "tableType": "VIRTUAL_VIEW",
+  "parameters": {},
+  "storage": {
+    "location": null,
+    "inputFormat": null,
+    "outputFormat": null,
+    "serdeLibrary": null,
+    "serdeParameters": {},
+    "columns": [
+      {
+        "name": "id",
+        "dataType": "bigint"
+      }
+    ]
+  },
+  "partitionKeys": [],
+  "versionId": "0"
+}

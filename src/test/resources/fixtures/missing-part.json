@@ -1,0 +1,25 @@
+{
+  "database": "db",
+  "name": "t",
+  "tableType": "EXTERNAL_TABLE",
+  "parameters": {
+    "spark.sql.sources.provider": "parquet",
+    "spark.sql.sources.schema.numParts": "2",
+    "spark.sql.sources.schema.part.0": "{\"type\":\"struct\",\"fields\":[{\"name\":\"id\","
+  },
+  "storage": {
+    "location": "s3://bucket-a/parquet/t",
+    "inputFormat": "org.apache.hadoop.mapred.SequenceFileInputFormat",
+    "outputFormat": "org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat",
+    "serdeLibrary": "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe",
+    "serdeParameters": {},
+    "columns": [
+      {
+        "name": "id",
+        "dataType": "bigint"
+      }
+    ]
+  },
+  "partitionKeys": [],
+  "versionId": "0"
+}

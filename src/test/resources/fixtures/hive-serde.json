@@ -1,0 +1,25 @@
+{
+  "database": "db",
+  "name": "t",
+  "tableType": "EXTERNAL_TABLE",
+  "parameters": {},
+  "storage": {
+    "location": "s3://bucket-a/hive/t",
+    "inputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+    "outputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat",
+    "serdeLibrary": "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe",
+    "serdeParameters": {},
+    "columns": [
+      {
+        "name": "id",
+        "dataType": "bigint"
+      },
+      {
+        "name": "name",
+        "dataType": "string"
+      }
+    ]
+  },
+  "partitionKeys": [],
+  "versionId": "0"
+}

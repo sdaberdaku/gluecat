@@ -1,0 +1,32 @@
+{
+  "database": "db",
+  "name": "t",
+  "tableType": "EXTERNAL_TABLE",
+  "parameters": {
+    "EXTERNAL": "TRUE",
+    "spark.sql.create.version": "3.5.5",
+    "spark.sql.partitionProvider": "catalog",
+    "spark.sql.sources.provider": "delta",
+    "spark.sql.sources.schema": "{\"type\":\"struct\",\"fields\":[]}",
+    "transient_lastDdlTime": "1787412796"
+  },
+  "storage": {
+    "location": "s3://bucket-a/delta/t-__PLACEHOLDER__",
+    "inputFormat": "org.apache.hadoop.mapred.SequenceFileInputFormat",
+    "outputFormat": "org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat",
+    "serdeLibrary": "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe",
+    "serdeParameters": {
+      "serialization.format": "1",
+      "path": "s3a://bucket-a/delta/t"
+    },
+    "columns": [
+      {
+        "name": "col",
+        "dataType": "array<string>",
+        "comment": "from deserializer"
+      }
+    ]
+  },
+  "partitionKeys": [],
+  "versionId": "0"
+}

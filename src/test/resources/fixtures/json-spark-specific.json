@@ -1,0 +1,28 @@
+{
+  "database": "db",
+  "name": "t",
+  "tableType": "EXTERNAL_TABLE",
+  "parameters": {
+    "spark.sql.sources.provider": "json",
+    "spark.sql.sources.schema": "{\"type\":\"struct\",\"fields\":[{\"name\":\"a\",\"type\":\"integer\",\"nullable\":true,\"metadata\":{}}]}"
+  },
+  "storage": {
+    "location": "s3://bucket-a/json/t-__PLACEHOLDER__",
+    "inputFormat": "org.apache.hadoop.mapred.SequenceFileInputFormat",
+    "outputFormat": "org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat",
+    "serdeLibrary": "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe",
+    "serdeParameters": {
+      "serialization.format": "1",
+      "path": "s3://bucket-a/json/t"
+    },
+    "columns": [
+      {
+        "name": "col",
+        "dataType": "array<string>",
+        "comment": "from deserializer"
+      }
+    ]
+  },
+  "partitionKeys": [],
+  "versionId": "0"
+}
