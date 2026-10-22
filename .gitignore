@@ -1,0 +1,44 @@
+# Maven
+target/
+.mvn/wrapper/maven-wrapper.jar
+dependency-reduced-pom.xml
+release.properties
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+
+# Scala / sbt / Metals / Bloop
+.bsp/
+.bloop/
+.metals/
+.scala-build/
+*.class
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+
+# Java / JVM
+*.log
+hs_err_pid*
+replay_pid*
+
+# Spark / Hadoop / tests
+spark-warehouse/
+metastore_db/
+derby.log
+*.crc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local
+*.local
+.env
