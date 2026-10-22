@@ -41,3 +41,8 @@ Thumbs.db
 # Local
 *.local
 .env
+
+# Documentation site (built by mkdocs; copies made by make docs and pages.yml)
+/site/
+docs/site/assets/
+docs/site/changelog.md

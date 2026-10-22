@@ -1,0 +1,56 @@
+name: Pages
+
+# Builds the MkDocs site and the Scaladoc, and deploys them to GitHub Pages. Runs on pushes to main that touch the
+# documentation and on demand; not from release tags (the github-pages environment only accepts the default branch).
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/site/**
+      - mkdocs.yml
+      - CHANGELOG.md
+      - README.md
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r docs/site/requirements.txt
+      - run: mkdir -p docs/site/assets && cp docs/logo/gluecat-icon.png docs/site/assets/ && cp CHANGELOG.md docs/site/changelog.md
+      - run: mkdocs build --strict
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+      - run: ./mvnw -B -ntp -q -pl modules/spark-4.1_2.13 -DskipTests scala:doc
+      - run: mkdir -p site/api && cp -r modules/spark-4.1_2.13/target/site/scaladocs/. site/api/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

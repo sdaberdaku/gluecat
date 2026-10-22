@@ -4,7 +4,7 @@ BRANCH ?= $(shell git rev-parse --abbrev-ref HEAD)
 MINISTACK_IMAGE := ministackorg/ministack:1.5.31
 COMPOSE := docker compose -f docker/docker-compose.yml
 
-.PHONY: test verify package ministack-up ministack-down compat-up compat-down compat matrix clean
+.PHONY: test verify package ministack-up ministack-down compat-up compat-down compat matrix docs clean
 
 # Unit tests of one module.
 test:
@@ -47,6 +47,11 @@ matrix:
 	if [ -z "$$url" ]; then \
 		echo 'make matrix: gh workflow run printed no run URL; find the run with gh run list --workflow ci.yml' >&2; exit 1; fi; \
 	echo "$$url"; gh run watch --exit-status "$${url##*/}"
+
+# Serves the documentation site (pip installs the pinned mkdocs into the active Python environment).
+docs:
+	mkdir -p docs/site/assets && cp docs/logo/gluecat-icon.png docs/site/assets/ && cp CHANGELOG.md docs/site/changelog.md
+	pip install -r docs/site/requirements.txt && mkdocs serve
 
 clean:
 	./mvnw -q clean

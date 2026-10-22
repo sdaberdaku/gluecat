@@ -1,0 +1,40 @@
+site_name: gluecat
+site_description: AWS Glue Data Catalog client for Apache Spark
+site_url: https://sdaberdaku.github.io/gluecat/
+repo_url: https://github.com/sdaberdaku/gluecat
+edit_uri: edit/main/docs/site/
+docs_dir: docs/site
+theme:
+  name: material
+  logo: assets/gluecat-icon.png
+  favicon: assets/gluecat-icon.png
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - content.code.copy
+plugins:
+  - search
+nav:
+  - Home: index.md
+  - Quick start: quickstart.md
+  - Configuration: configuration.md
+  - Operations: operations.md
+  - Glue entry format: glue-entry-format.md
+  - How it works: how-it-works.md
+  - Limitations: limitations.md
+  - Development: development.md
+  - Release: release.md
+  - Changelog: changelog.md
+  - API (Scaladoc): https://sdaberdaku.github.io/gluecat/api/
+markdown_extensions:
+  - attr_list
+  - tables

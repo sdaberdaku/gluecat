@@ -76,3 +76,15 @@ jobs:
         run: >-
           ./mvnw -B -ntp -pl modules/spark-4.1_2.13 -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false
           -Dit.test='TrinoCompat*IT,LegacyHiveGlueCompat*IT' verify
+
+  # A broken link or nav entry fails the pull request; the site is deployed by pages.yml.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r docs/site/requirements.txt
+      - run: mkdir -p docs/site/assets && cp docs/logo/gluecat-icon.png docs/site/assets/ && cp CHANGELOG.md docs/site/changelog.md
+      - run: mkdocs build --strict
