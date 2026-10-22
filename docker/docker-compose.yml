@@ -1,6 +1,6 @@
-# Containers for the compatibility suite TrinoCompat*IT: make compat-up / compat-down.
-# /tmp/gluecat-compat must exist with mode 0777 before `up`: the tests write table data there and Trino sees it at the
-# same path. The ministack service replaces the standalone MiniStack container on port 4566.
+# Containers for the compatibility suites (TrinoCompat*IT, LegacyHiveGlueCompat*IT): make compat-up / compat-down.
+# /tmp/gluecat-compat must exist with mode 0777 before `up`: the tests write table data there and both readers see it
+# at the same path. The ministack service replaces the standalone MiniStack container on port 4566.
 services:
   ministack:
     image: ministackorg/ministack:1.5.31
@@ -17,4 +17,23 @@ services:
       - "8080:8080"
     volumes:
       - ./trino/etc:/etc/trino:ro
+      - /tmp/gluecat-compat:/tmp/gluecat-compat
+
+  # Spark 3.5.1 with the patched Hive and the Glue Hive client (fork tag v3.5.1 of
+  # aws-glue-data-catalog-client-for-apache-hive-metastore) and delta-spark 3.2.0; runs as uid 185.
+  legacy-spark:
+    image: ghcr.io/sdaberdaku/spark-glue-python:v3.5.1-python3.10.14
+    container_name: legacy-spark
+    # The Glue client reaches MiniStack through glue-defaults-proxy.py. With an endpoint set it signs with the region
+    # SDK v1 finds in the host name (glue.<region>.*), and MiniStack keeps Glue state per region: this name puts its
+    # requests in eu-central-1 with everything else.
+    extra_hosts:
+      - "glue.eu-central-1.proxy:127.0.0.1"
+    command: ["sh", "-c", "python3 -I /opt/glue-defaults-proxy.py & exec sleep infinity"]
+    environment:
+      AWS_ACCESS_KEY_ID: "111111111111"
+      AWS_SECRET_ACCESS_KEY: test
+    volumes:
+      - ./legacy/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+      - ./legacy/glue-defaults-proxy.py:/opt/glue-defaults-proxy.py:ro
       - /tmp/gluecat-compat:/tmp/gluecat-compat

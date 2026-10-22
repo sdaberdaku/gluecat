@@ -56,7 +56,8 @@ jobs:
           DELTA_ARTIFACT: ${{ matrix.deltaArtifact }}
         run: ./mvnw -B -ntp -pl modules/${{ matrix.module }} -Dspark.version=${{ matrix.spark }} -Ddelta.version=${{ matrix.delta }} ${DELTA_ARTIFACT:+-Ddelta.artifact=$DELTA_ARTIFACT} verify
 
-  # Trino reads gluecat's Glue entries (and gluecat Trino's) on the containers of docker/docker-compose.yml.
+  # Trino and Spark 3.5 with the Glue Hive client read gluecat's Glue entries, and gluecat reads theirs, on the
+  # containers of docker/docker-compose.yml.
   compat:
     needs: plan
     runs-on: ubuntu-latest
@@ -70,4 +71,5 @@ jobs:
       - run: mkdir -m 0777 -p /tmp/gluecat-compat && docker compose -f docker/docker-compose.yml up -d --wait
       - env:
           TRINO_URL: jdbc:trino://localhost:8080
-        run: ./mvnw -B -ntp -pl modules/spark-4.1_2.13 -Dit.test='TrinoCompat*IT' verify
+          LEGACY_SPARK_CONTAINER: legacy-spark
+        run: ./mvnw -B -ntp -pl modules/spark-4.1_2.13 -Dit.test='TrinoCompat*IT,LegacyHiveGlueCompat*IT' verify

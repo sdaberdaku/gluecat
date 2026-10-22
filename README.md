@@ -305,6 +305,9 @@ make test            # unit tests of one module (MODULE=spark-4.1_2.13 by defaul
 make verify          # unit tests, the jar, and integration tests against the jar
 make package         # every module's jar
 make matrix          # full CI matrix on GitHub Actions for the current branch
+make compat-up       # MiniStack, Trino and Spark 3.5 with the Glue Hive client (after make ministack-down)
+make compat          # Trino and that Spark read gluecat's tables, and gluecat reads theirs
+make compat-down     # stops them; make ministack-up brings back the plain emulator
 ```
 
 JDK 17 or later builds every module. More detail:
