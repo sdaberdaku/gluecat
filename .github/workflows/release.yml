@@ -5,7 +5,10 @@ name: Release
 # not from tags: the github-pages environment only accepts the default branch.
 on:
   push:
-    tags: ["v*"]
+    tags: ["v[0-9]*"]
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -30,7 +33,8 @@ jobs:
           server-password: MAVEN_CENTRAL_PASSWORD
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
           gpg-passphrase: MAVEN_GPG_PASSPHRASE
-      - run: ./mvnw -B -ntp org.codehaus.mojo:versions-maven-plugin:2.23.0:set -DnewVersion=${GITHUB_REF_NAME#v} -DgenerateBackupPoms=false
+      - run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      - run: ./mvnw -B -ntp org.codehaus.mojo:versions-maven-plugin:2.23.0:set -DnewVersion=$VERSION -DgenerateBackupPoms=false
       - run: ./mvnw -B -ntp -Prelease -DskipTests -DskipITs deploy
         env:
           MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
@@ -38,5 +42,6 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
       - uses: softprops/action-gh-release@v2
         with:
-          files: modules/*/target/gluecat-spark-*.jar
+          # The main jars only, not the -sources and -javadoc jars.
+          files: modules/*/target/gluecat-spark-*-${{ env.VERSION }}.jar
           generate_release_notes: true

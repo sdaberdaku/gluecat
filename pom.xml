@@ -350,6 +350,8 @@
               <publishingServerId>central</publishingServerId>
               <autoPublish>true</autoPublish>
               <waitUntil>published</waitUntil>
+              <!-- Seconds to wait for Central to publish five artifacts; the plugin's default, 1800, can be too short. -->
+              <waitMaxTime>3600</waitMaxTime>
             </configuration>
           </plugin>
         </plugins>

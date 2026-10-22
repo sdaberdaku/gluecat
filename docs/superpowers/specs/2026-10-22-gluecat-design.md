@@ -136,8 +136,9 @@ catalog can be configured while Glue is unreachable.
   they do not fail, because Spark passes every `spark.sql.catalog.<name>.*` option to the catalog,
   including options meant for Delta. Options under `client.credentials-provider.` are passed to the
   user's provider unchecked.
-- Timeouts, retries and assume-role credential refresh use the AWS SDK v2 defaults (standard retry
-  mode; the STS provider refreshes before expiry in the background). The README lists the concrete
+- gluecat sets the standard retry mode (3 attempts), which overrides `AWS_RETRY_MODE` (the SDK's own default is
+  legacy), and otherwise keeps the AWS SDK v2 defaults for timeouts and assume-role credential refresh (the STS
+  provider refreshes before expiry in the background). The README lists the concrete
   values for the SDK version gluecat is built against. STS failures name the catalog and the role ARN.
 - `initialize` fails with a clear error on Spark versions below the supported floor (3.5.3 on the 3.5
   line) instead of failing later on the first non-Delta read.
@@ -157,7 +158,8 @@ until it is exhausted; a test lists a database with more than 100 tables.
 
 The full `SupportsNamespaces` contract for single-level namespaces: list, exists, load metadata, create
 (with comment, location, properties), alter (set or remove properties, comment, location), drop (an
-empty database; with `CASCADE`, drop its tables first, which never deletes table data). Multi-level
+empty database; with `CASCADE`, Glue's `DeleteDatabase` removes the database's table entries; table data is never
+deleted). Multi-level
 namespaces do not exist in Glue: `listNamespaces(ns)` for a non-empty `ns` returns nothing, and creating
 one fails.
 
@@ -565,7 +567,7 @@ public (Actions minutes are free for public repositories), pushes to `main` run 
   (`mergeSchema`, `MERGE ... WITH SCHEMA EVOLUTION`), which needs a `REFRESH TABLE`. `REFRESH TABLE` on a Delta
   table needs Glue write access.
 - Non-Delta tables: only those whose partitions are not tracked in Glue are readable; INSERT writes files but does not update the Glue entry; MERGE, UPDATE and DELETE are Delta-only.
-- Views and functions: named catalogs refuse them with Spark's `CATALOG_OPERATION` error; in `spark_catalog` mode they exist in Spark's in-memory catalog only.
+- Views and functions: named catalogs refuse them with Spark's `CATALOG_OPERATION` error; in `spark_catalog` mode Spark sends them to its in-memory catalog, which has only `default` (`CREATE VIEW` in a Glue database fails with `SCHEMA_NOT_FOUND`); temporary views work. Materialized views are not supported.
 - DROP never deletes data; PURGE is not supported. This differs from Spark's managed-table semantics:
   dropped managed tables leave their directories under `<warehouse>/<db>.db/` or the database location,
   and repeated create/drop cycles (test suites, scratch CTAS) accumulate unreferenced data there that

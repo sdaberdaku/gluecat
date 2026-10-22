@@ -35,9 +35,15 @@ compat:
 	TRINO_URL=jdbc:trino://localhost:8080 LEGACY_SPARK_CONTAINER=legacy-spark \
 		./mvnw -q -pl modules/$(MODULE) -Dit.test='TrinoCompat*IT,LegacyHiveGlueCompat*IT' verify
 
-# Full CI matrix on GitHub Actions for the current branch, which must be pushed.
+# Full CI matrix on GitHub Actions for the current branch (or BRANCH=...), which must be pushed.
 matrix:
-	url=$$(gh workflow run ci.yml --ref $(BRANCH) -f full=true) && gh run watch --exit-status "$${url##*/}"
+	@branch='$(BRANCH)'; \
+	if [ -z "$$branch" ] || [ "$$branch" = HEAD ]; then \
+		echo 'make matrix: no branch checked out (detached HEAD); run make matrix BRANCH=<pushed branch>' >&2; exit 1; fi; \
+	url=$$(gh workflow run ci.yml --ref "$$branch" -f full=true | grep -o 'https://[^ ]*/actions/runs/[0-9]*' | tail -n 1); \
+	if [ -z "$$url" ]; then \
+		echo 'make matrix: gh workflow run printed no run URL; find the run with gh run list --workflow ci.yml' >&2; exit 1; fi; \
+	echo "$$url"; gh run watch --exit-status "$${url##*/}"
 
 clean:
 	./mvnw -q clean

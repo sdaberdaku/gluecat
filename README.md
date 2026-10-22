@@ -114,8 +114,10 @@ spark.sql.catalog.acct_b.glue.id              = 222222222222
 ```
 
 `spark.sql.catalogImplementation = in-memory` is required. Spark's in-memory catalog stays in place for temporary
-views, functions and `CREATE VIEW`, which therefore live only as long as the application and never reach Glue. Both
-modes run the same integration tests.
+views and functions, which work as usual. Spark also sends `CREATE VIEW` and `CREATE FUNCTION` to that in-memory
+catalog, which has only a `default` database: a view in a Glue database fails with `SCHEMA_NOT_FOUND`, and a view in
+`default` exists in memory only, for the lifetime of the application. Nothing of this reaches Glue. The operation
+tests run in both modes; the credentials, account isolation and concurrency tests use named catalogs.
 
 ## Configuration
 
@@ -167,8 +169,9 @@ also works without a role if that account's Glue resource policy allows the call
 gluecat is built and tested against SDK 2.24.6, the `bundle` version that `hadoop-aws` 3.4.1 depends on (Hadoop 3.4.1
 is the oldest Hadoop that a supported Spark 4.x line bundles). `glue` and `sts` are `provided` dependencies, as in
 Iceberg's `iceberg-aws`. Newer 2.x versions on the classpath are expected to work, since the SDK keeps backward
-compatibility within 2.x, but CI does not test them; older versions are not supported. gluecat uses the SDK defaults:
-standard retry mode (3 attempts), no API call timeout, the SDK's default HTTP client resolution. Assume-role sessions
+compatibility within 2.x, but CI does not test them; older versions are not supported. gluecat sets the standard retry mode
+(3 attempts), which overrides `AWS_RETRY_MODE` (the SDK's own default is the legacy mode), and otherwise keeps the
+SDK defaults: no API call timeout, the SDK's default HTTP client resolution. Assume-role sessions
 last `client.assume-role.timeout-sec` (3600 s by default) and refresh asynchronously.
 
 ## Supported operations
@@ -187,19 +190,19 @@ changes) are covered by unit tests. More detail:
 | `CREATE TABLE` without `LOCATION` (managed) | Location from the database location, else `<warehouse>/<db>.db/<table>`; fails with neither | Same, Glue entry only |
 | `CREATE TABLE ... AS SELECT`, `df.write.saveAsTable` | Yes, with Delta's semantics (default mode and `overwrite`, with or without the `path` option) | No: fails and points to Delta |
 | `REPLACE TABLE`, `CREATE OR REPLACE TABLE`, `REPLACE TABLE ... AS SELECT` | Yes | No |
-| `df.writeTo(...)`: `create`, `append`, `overwrite`, `overwritePartitions`, `replace`, `createOrReplace` | Yes; `append` and `overwrite` leave the Glue entry alone | `create`, `replace`, `createOrReplace`: no |
+| `df.writeTo(...)`: `create`, `append`, `overwrite`, `overwritePartitions`, `replace`, `createOrReplace` | Yes; `append` and `overwrite` leave the Glue entry alone | `create`, `replace`, `createOrReplace`: no; `append`, `overwrite`, `overwritePartitions`: not tested |
 | Structured Streaming: `writeStream.toTable`, `readStream.table` | Yes; `toTable` creates the table and its Glue entry when missing | Not tested |
 | `ALTER TABLE` | Applied by Delta to its log. Column changes (add, drop, rename, type, comment, nullability, position; Delta's own rules apply) also rewrite the Glue columns. `SET LOCATION` needs a Delta table at the target, moves the Glue entry and re-syncs its columns. Properties stay in the Delta log | Properties, comment, top-level columns and location, in the Glue entry |
 | `REFRESH TABLE` (SQL) | Re-syncs the Glue columns from the Delta log; needs Glue write access | No-op |
 | `ALTER TABLE ... RENAME TO` | Glue entry only; the data stays in place | Same |
 | `DROP TABLE` | Removes the Glue entry, never deletes data | Same |
 | `DROP TABLE ... PURGE` | Fails | Fails |
-| Views, functions | `CREATE VIEW` in a named catalog fails with Spark's `UNSUPPORTED_FEATURE.CATALOG_OPERATION` ("does not support views"); as `spark_catalog`, views and functions exist in Spark's in-memory catalog only | Same |
+| Views, functions | `CREATE VIEW` in a named catalog fails with Spark's `UNSUPPORTED_FEATURE.CATALOG_OPERATION` ("does not support views"); as `spark_catalog`, Spark sends them to its in-memory catalog, which has only `default`, so `CREATE VIEW` in a Glue database fails with `SCHEMA_NOT_FOUND`; temporary views work in both modes | Same |
 
 Path-based Delta operations (`` delta.`s3://...` ``) involve no catalog and work as before.
 
-Databases: `CREATE DATABASE` (comment, location, properties), `ALTER DATABASE`, `DROP DATABASE` (with `CASCADE` it
-drops the Glue tables first, never their data), `SHOW DATABASES` and `USE`. Glue has single-level namespaces only.
+Databases: `CREATE DATABASE` (comment, location, properties), `ALTER DATABASE`, `DROP DATABASE` (with `CASCADE`, Glue's
+`DeleteDatabase` removes the database's table entries; table data is never deleted), `SHOW DATABASES` and `USE`. Glue has single-level namespaces only.
 Database and table names are lowercased (Glue stores them in lowercase), so `acct_a.MyDb.MyTable` and
 `acct_a.mydb.mytable` are the same table; column names keep their case.
 
@@ -227,8 +230,10 @@ The full list: [limitations](https://sdaberdaku.github.io/gluecat/limitations/).
   `spark.catalog.refreshTable` does not re-sync the columns.
 - Non-Delta tables: only tables whose partitions are not tracked in Glue are readable; `INSERT` writes files but does
   not update the Glue entry; `MERGE`, `UPDATE`, `DELETE`, CTAS and `REPLACE` are Delta only.
-- Views and functions: named catalogs refuse `CREATE VIEW` with Spark's `CATALOG_OPERATION` error; as
-  `spark_catalog`, views and functions exist only in Spark's in-memory catalog.
+- Views and functions: named catalogs refuse `CREATE VIEW` with Spark's `CATALOG_OPERATION` error. As
+  `spark_catalog`, persistent views and functions work only in the in-memory catalog's `default` database and live
+  only as long as the application; in a Glue database `CREATE VIEW` fails with `SCHEMA_NOT_FOUND`. Temporary views
+  work in both modes. Materialized views are not supported.
 - Generated columns and column `DEFAULT` values are refused: Spark refuses generated columns because the catalog
   declares no support for them, and Delta refuses `ADD COLUMN ... DEFAULT`.
 - `DROP` never deletes data and `PURGE` is not supported. This differs from Spark's managed tables: dropped managed
@@ -246,7 +251,8 @@ The full list: [limitations](https://sdaberdaku.github.io/gluecat/limitations/).
   it off they fail before Delta writes anything.
 - Delta's `UpdateCatalog` hook would write through `spark_catalog` (see Design notes), so the catalog fails to
   initialize while `spark.databricks.delta.catalog.update.enabled` is `true`. It is a runtime setting: the catalog
-  checks it again before every Delta operation by name, and table operations by name fail while it is on.
+  checks it again before every Delta operation by name. While it is on, loads, reads, writes, creates, alters and
+  refreshes of tables by name fail; `DROP TABLE`, listings and database operations do not go through the check.
 - Concurrent table alters: every Glue `UpdateTable` passes the `VersionId` read before the change, so the second of
   two concurrent alters fails with a retryable error; run the statement again. Glue databases have no `VersionId`, so
   concurrent database alters are last-writer-wins.
@@ -255,7 +261,7 @@ The full list: [limitations](https://sdaberdaku.github.io/gluecat/limitations/).
   database named `delta`, to look up a default collation. Spark ignores the result, but the call shows up in
   CloudTrail, possibly as access denied.
 - Delta 4.1.0 and 4.2.0 fail every `ALTER TABLE` on a Delta table on Spark 4.1.2 and later
-  (`NoClassDefFoundError: IgnoreCachedData`), with or without gluecat. Use Delta 4.3 or later there.
+  (`NoClassDefFoundError: IgnoreCachedData`), with or without gluecat. Use Delta 4.3.1 or later there (the versions CI tests).
 - STS: see the notes under Credentials (regional public endpoint, `AWS_ENDPOINT_URL` ignored by SDK 2.24.6, private
   DNS for VPC endpoints).
 - Tested against MiniStack (a local AWS emulator) only: IAM policies, Glue resource policies and cross-account
@@ -267,7 +273,8 @@ The full list: [limitations](https://sdaberdaku.github.io/gluecat/limitations/).
 More detail: [how it works](https://sdaberdaku.github.io/gluecat/how-it-works/).
 
 How Delta tables are created. Delta's create path (`CreateDeltaTableCommand`) registers a new or replaced table
-through the wrapping catalog only when that catalog's class name starts with `io.unitycatalog.`. For any other catalog
+through the catalog that `DeltaCatalog` wraps (its delegate) only when that catalog's class name starts with
+`io.unitycatalog.` (`AbstractDeltaCatalog.isUnityCatalog`). For any other catalog
 it registers the table through `spark.sessionState.catalog`, the session's built-in catalog behind `spark_catalog`.
 That catalog is not pluggable (`spark.sql.catalogImplementation` accepts only `in-memory` and `hive`), and a session
 has exactly one. So gluecat never passes a catalog identifier to Delta's create calls: every Delta create, replace and
