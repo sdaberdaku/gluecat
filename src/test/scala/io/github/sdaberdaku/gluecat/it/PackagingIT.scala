@@ -12,7 +12,7 @@ import org.scalatestplus.junit.JUnitRunner
 @RunWith(classOf[JUnitRunner])
 class PackagingIT extends AnyFunSuite {
   private val names: Seq[String] = {
-    val jar = new JarFile(System.getProperty("glue.catalog.jar"))
+    val jar = new JarFile(sys.props.getOrElse("glue.catalog.jar", sys.error("glue.catalog.jar not set; run through failsafe")))
     try jar.entries().asScala.map(_.getName).toList finally jar.close()
   }
 
@@ -29,6 +29,8 @@ class PackagingIT extends AnyFunSuite {
   test("no SDK classes") {
     none("SDK entries")(n => n.startsWith("software/amazon/") || n.startsWith("org/reactivestreams/"))
     none("SDK service files")(_.startsWith("META-INF/services/software.amazon."))
+    none("non-gluecat entries")(n => !n.endsWith("/") && !n.startsWith("META-INF/") && !n.startsWith("io/github/sdaberdaku/gluecat/"))
+    none("shaded entries")(_.startsWith("io/github/sdaberdaku/gluecat/shaded/"))
   }
 
   test("no signature files and no module-info at the root") {
