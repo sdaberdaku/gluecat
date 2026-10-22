@@ -552,8 +552,8 @@ public (Actions minutes are free for public repositories), pushes to `main` run 
   table above, all with the same version, as one Central deployment. Sources jar, javadoc jar (scaladoc), GPG
   signatures and the POM metadata Central requires (license, developer, SCM).
 - The same jar is attached to a GitHub Release for the tag.
-- Documentation is published to GitHub Pages from `docs/site/` by `.github/workflows/pages.yml`; the site goes live
-  once the repository is public.
+- Documentation is published to GitHub Pages from `docs/site/` by `.github/workflows/pages.yml` on pushes to `main`
+  (and on manual dispatch), never from a tag: the `github-pages` environment only accepts the default branch.
 - Flip the repository to public before tagging v1.0.0.
 
 ## Known limitations to document in the README

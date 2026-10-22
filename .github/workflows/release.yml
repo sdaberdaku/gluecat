@@ -1,0 +1,42 @@
+name: Release
+
+# Pushing a tag vX.Y.Z runs the full matrix on the tagged commit, then publishes every artifact to Maven Central as one
+# deployment and attaches the jars to a GitHub Release. The documentation site is deployed by pages.yml from main,
+# not from tags: the github-pages environment only accepts the default branch.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+    with:
+      full: true
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+          server-id: central
+          server-username: MAVEN_CENTRAL_USERNAME
+          server-password: MAVEN_CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+      - run: ./mvnw -B -ntp org.codehaus.mojo:versions-maven-plugin:2.23.0:set -DnewVersion=${GITHUB_REF_NAME#v} -DgenerateBackupPoms=false
+      - run: ./mvnw -B -ntp -Prelease -DskipTests -DskipITs deploy
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: modules/*/target/gluecat-spark-*.jar
+          generate_release_notes: true
