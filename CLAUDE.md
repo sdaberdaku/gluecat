@@ -51,3 +51,13 @@ reads other data-source tables, without the Hive metastore client. Works as a na
   design change first.
 - A Maven Central release cannot be deleted or replaced: the full CI matrix must be green on the tagged commit.
 - Show drafts of user-facing text (README, release notes) before pushing.
+
+## Standing consent (owner, 2026-10-22)
+
+- Push to `implementation` and merge/push `main` without asking.
+- Commit and push README, CHANGELOG and docs without showing a draft first (this overrides the "show drafts" rule
+  above).
+- Run GitHub Actions (`gh workflow run`), start and stop local Docker containers, and rewrite unpublished branch
+  history as needed.
+- Still ask before: creating a release tag (`v*`), flipping the repository public, deleting anything outside the
+  working tree, or changing the design (spec "Decided", "Anti-goals", "Glue entry format").
