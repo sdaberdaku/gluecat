@@ -62,7 +62,8 @@ class EntryConverterReadSuite extends AnyFunSuite {
 
   test("iceberg is rejected with a pointer to the Iceberg catalog") {
     val e = intercept[UnsupportedTableException](convert("iceberg"))
-    assert(e.getMessage.contains("Iceberg") && e.getMessage.contains("org.apache.iceberg.spark.SparkCatalog"))
+    assert(e.getMessage.contains("Iceberg") && e.getMessage.contains("org.apache.iceberg.spark.SparkCatalog") &&
+      e.getMessage.contains("GlueCatalog"))
   }
 
   test("uppercase table_type still detected") {
@@ -91,5 +92,12 @@ class EntryConverterReadSuite extends AnyFunSuite {
 
   test("missing location") {
     assert(intercept[MalformedEntryException](convert("missing-location")).getMessage.contains("location"))
+  }
+
+  test("locations with characters that are illegal in a URI load like Spark does") {
+    val e = Fixtures.table("delta-by-this-catalog")
+    val spaced = e.copy(storage = e.storage.copy(serdeParameters = Map("path" -> "s3://bucket-a/my dir/t")))
+    val t = EntryConverter.toCatalogTable("acct_a", spaced)
+    assert(t.storage.locationUri.map(_.getPath).exists(_.endsWith("/my dir/t")))
   }
 }

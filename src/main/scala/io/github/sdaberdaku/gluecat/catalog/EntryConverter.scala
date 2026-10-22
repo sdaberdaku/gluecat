@@ -1,11 +1,9 @@
 package io.github.sdaberdaku.gluecat.catalog
 
-import java.net.URI
-
 import scala.util.control.NonFatal
 
 import org.apache.spark.sql.catalyst.TableIdentifier
-import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogTable, CatalogTableType}
+import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogUtils, CatalogTable, CatalogTableType}
 import org.apache.spark.sql.types.{DataType, StructField, StructType}
 
 import io.github.sdaberdaku.gluecat.glue.GlueTableEntry
@@ -33,7 +31,7 @@ object EntryConverter {
     if (entry.tableType.contains("VIRTUAL_VIEW")) throw unsupported("Glue views are not supported (view)")
     if (params.get("table_type").exists(_.equalsIgnoreCase("ICEBERG"))) {
       throw unsupported("Iceberg tables are not loaded by this catalog; register the Iceberg catalog " +
-        "(org.apache.iceberg.spark.SparkCatalog) for them")
+        "(org.apache.iceberg.spark.SparkCatalog with catalog-impl=org.apache.iceberg.aws.glue.GlueCatalog) for them")
     }
     val provider = params.getOrElse(Provider,
       throw unsupported(s"not a Spark data source table (missing $Provider)"))
@@ -43,7 +41,7 @@ object EntryConverter {
       identifier = TableIdentifier(entry.name, Some(entry.database), Some(catalogName)),
       tableType = if (entry.tableType.contains("MANAGED_TABLE")) CatalogTableType.MANAGED
       else CatalogTableType.EXTERNAL,
-      storage = CatalogStorageFormat(Some(new URI(uri)), entry.storage.inputFormat, entry.storage.outputFormat,
+      storage = CatalogStorageFormat(Some(CatalogUtils.stringToURI(uri)), entry.storage.inputFormat, entry.storage.outputFormat,
         entry.storage.serdeLibrary, compressed = false,
         entry.storage.serdeParameters - "path" - "serialization.format"),
       schema = schema(params, malformed),
@@ -52,7 +50,7 @@ object EntryConverter {
       comment = entry.description,
       owner = entry.owner.getOrElse(""),
       createVersion = params.getOrElse("spark.sql.create.version", ""),
-      properties = params.filterKeys(k => !HiddenParameters(k) && !k.startsWith("spark.sql.")).toMap,
+      properties = params.filter { case (k, _) => !HiddenParameters(k) && !k.startsWith("spark.sql.") },
       tracksPartitionsInCatalog = params.get("spark.sql.partitionProvider").contains("catalog"))
   }
 

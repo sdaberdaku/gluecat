@@ -28,7 +28,7 @@ object CatalogErrors {
   // Spark's NoSuch*/AlreadyExists* constructors that exist on both 3.5 and 4.x and carry a custom name are the
   // multi-part ones, so the catalog name is part of the name they report.
   def translate(catalogName: String, glueId: Option[String], e: GlueApiException, ident: Option[Identifier],
-      namespace: Option[Array[String]]): Throwable = {
+      namespace: Option[Array[String]], expectedVersionId: Option[String] = None): Throwable = {
     val ns = ident.map(_.namespace.toSeq).orElse(namespace.map(_.toSeq)).getOrElse(Seq.empty)
     val where = ident.map(i => (catalogName +: ns) :+ i.name).getOrElse(catalogName +: ns)
     def id = where.mkString(".")
@@ -41,7 +41,9 @@ object CatalogErrors {
         else new NamespaceAlreadyExistsException(where.toArray)
       case _: GlueConcurrentModification =>
         new GlueCatalogConcurrentModificationException(
-          s"Concurrent modification of $id in catalog $catalogName; retry the statement", e)
+          s"Concurrent modification of $id in catalog $catalogName" +
+            expectedVersionId.map(v => s" (expected VersionId $v)").getOrElse("") +
+            s"; retry the statement. ${e.getMessage}", e)
       case _: GlueAccessDenied =>
         new RuntimeException(s"Catalog $catalogName (glue.id=$glue): access denied: ${e.getMessage}", e)
       case f: GlueFailure =>
