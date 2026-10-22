@@ -25,9 +25,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: select
-        # inputs.full is only set on workflow_dispatch and workflow_call; push and pull_request run the smoke rows.
+        # Pushes run every row; pull requests run the smoke rows; workflow_dispatch and workflow_call follow inputs.full.
         # github.event_name cannot tell a workflow_call apart: in a called workflow it is the caller's event.
-        run: echo "matrix=$(jq -c '[.[] | select(${{ inputs.full && 'true' || '.smoke' }})]' matrix.json)" >> "$GITHUB_OUTPUT"
+        run: echo "matrix=$(jq -c '[.[] | select(${{ (github.event_name == 'push' || inputs.full) && 'true' || '.smoke' }})]' matrix.json)" >> "$GITHUB_OUTPUT"
 
   test:
     needs: plan
