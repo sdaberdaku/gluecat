@@ -6,10 +6,11 @@ Date: 2026-10-22. Status: approved 2026-10-22.
 
 ## Why
 
-Spark has one built-in catalog, `spark_catalog`. Out of the box, Delta Lake works only through it
-(`DeltaCatalog` wraps the session catalog), and the session catalog sits on a single Hive metastore
-client. With the AWS Glue Hive client, that means one Glue catalog ID and one set of credentials for
-the whole Spark application.
+Spark and Delta Lake have no Glue support of their own. Spark has one built-in catalog,
+`spark_catalog`, which talks to a Hive metastore, and out of the box Delta Lake works only through it
+(`DeltaCatalog` wraps the session catalog). Reaching Glue at all means installing AWS's Glue Data
+Catalog client for Hive (patched Hive jars, AWS SDK v1) into that one session catalog, which gives one
+Glue catalog ID and one set of credentials for the whole Spark application.
 
 In a setup where each customer, team or environment has its own AWS account, the S3 data can already
 live in each account (S3A handles per-bucket access), but every Delta table has to be registered in one
