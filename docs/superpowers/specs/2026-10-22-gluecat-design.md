@@ -433,7 +433,10 @@ too:
   for providers such as Parquet and ORC, per Spark's `HiveSerDe.sourceToSerDe`) and the Spark-specific
   form with the placeholder location.
 - `StorageDescriptor.Columns`: the table's columns at create, replace, `ALTER TABLE` column change or
-  `REFRESH TABLE` time (name and Spark `catalogString` type). No `PartitionKeys`.
+  `REFRESH TABLE` time (name and Spark `catalogString` type). Delta entries have no `PartitionKeys`. Other providers:
+  Hive-compatible entries carry the data columns in `Columns` and the partition columns in `PartitionKeys`;
+  Spark-specific entries carry `col array<string>` plus `PartitionKeys` (clarification, 2026-10-24: the code has
+  done this since 1.0.0).
 - User table properties as Glue parameters.
 - Glue's limits: column comments become one line (control characters to spaces) cut to 255 UTF-8 bytes, and the
   table description is cut to 2048 bytes; the full column comments stay in the schema JSON and a Delta table's
