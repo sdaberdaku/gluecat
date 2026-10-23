@@ -39,9 +39,11 @@ abstract class SparkIT(mode: Mode) extends AnyFunSuite with BeforeAndAfterAll {
     "file:" + Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwxrwxrwx")).toAbsolutePath
   }
 
+  /** `e` and its causes. */
+  def causes(e: Throwable): Iterator[Throwable] = Iterator.iterate(e)(_.getCause).takeWhile(_ != null)
+
   /** Every message in the cause chain, for errors Spark wraps. */
-  def fullMessage(e: Throwable): String =
-    Iterator.iterate(e)(_.getCause).takeWhile(_ != null).map(_.getMessage).mkString(" | ")
+  def fullMessage(e: Throwable): String = causes(e).map(_.getMessage).mkString(" | ")
 
   /** More `TestGlueCatalog`s for every session, by name, with their options on top of the shared ones; a
     * `spark_catalog` entry here replaces the Named mode's DeltaCatalog. */
@@ -67,7 +69,8 @@ abstract class SparkIT(mode: Mode) extends AnyFunSuite with BeforeAndAfterAll {
         "client.region" -> "eu-central-1",
         "glue.endpoint" -> MiniStack.Endpoint,
         "warehouse" -> s"file:$root/wh/$name",
-        "client.assume-role.arn" -> IamFixture.ensureRole(own.getOrElse("glue.id", "111111111111")),
+        "client.assume-role.arn" -> own.getOrElse("client.assume-role.arn",
+          IamFixture.ensureRole(own.getOrElse("glue.id", "111111111111"))),
         "client.assume-role.region" -> "eu-central-1")
       b.config(s"spark.sql.catalog.$name", classOf[TestGlueCatalog].getName)
       (shared ++ own).foreach { case (k, v) => b.config(s"spark.sql.catalog.$name.$k", v) }

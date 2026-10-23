@@ -17,7 +17,8 @@ object IsolationIT {
     "glue.id" -> "999999999999",
     "client.credentials-provider" -> classOf[StaticKeyCredentialsProvider].getName,
     "client.credentials-provider.access-key" -> "999999999999",
-    "client.credentials-provider.secret-key" -> "test")
+    "client.credentials-provider.secret-key" -> "test",
+    "client.assume-role.arn" -> "")
 }
 
 /** `acct_a` (account 111 through the fixture's role), `acct_b` (account 222 through a role trusting 111) and a
