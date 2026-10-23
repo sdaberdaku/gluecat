@@ -53,11 +53,11 @@ class S3RoleDefaultsSuite extends AnyFunSuite {
 
   test("a user-set base key is not overridden") {
     val set = Map(MainKey -> "X", BaseKey -> "Y")
-    assert(!S3RoleDefaults.derive(role, session(set)).contains(BaseKey))
+    assert(!S3RoleDefaults.derive(role, session(set), "3.4.1").contains(BaseKey))
   }
 
   test("never derives the endpoint region, even with client.region") {
-    assert(!S3RoleDefaults.derive(role, noSession).contains("fs.s3a.endpoint.region"))
+    assert(!S3RoleDefaults.derive(role, noSession, "3.4.1").contains("fs.s3a.endpoint.region"))
   }
 
   test("external id on Hadoop 3.3 derives nothing and is flagged; 3.4 and no external id derive in full") {
@@ -74,7 +74,7 @@ class S3RoleDefaultsSuite extends AnyFunSuite {
   }
 
   test("never derives the STS endpoint keys") {
-    assert(!S3RoleDefaults.derive(role, noSession).keys.exists(_.startsWith("fs.s3a.assumed.role.sts.")))
+    assert(!S3RoleDefaults.derive(role, noSession, "3.4.1").keys.exists(_.startsWith("fs.s3a.assumed.role.sts.")))
   }
 
   test("nothing without a role, nothing with a custom provider class") {
@@ -116,5 +116,23 @@ class S3RoleDefaultsSuite extends AnyFunSuite {
     val conf = new Configuration()
     conf.set(MainKey, Web)
     assert(S3RoleDefaults.derive(role, SessionHadoop(conf), "3.4.1")(BaseKey) == Web)
+  }
+
+  test("an unparseable Hadoop version derives normally and warns once; no crash without an external id") {
+    for (v <- Seq("Unknown", "", "3")) {
+      assert(!S3RoleDefaults.externalIdUnsupported(role, v))
+      assert(S3RoleDefaults.derive(role, noSession, v).contains("fs.s3a.assumed.role.external.id"))
+      val w = S3RoleDefaults.warnings("acct_a", role, v)
+      assert(w.size == 1 && w.head.contains("could not be parsed"))
+      assert(S3RoleDefaults.warnings("acct_a", parse(), v).isEmpty)
+      assert(S3RoleDefaults.derive(parse("client.assume-role.arn" -> Arn), noSession, v).nonEmpty)
+    }
+  }
+
+  test("warning text: one on Hadoop 3.3 naming the remedy, none on 3.4") {
+    val w = S3RoleDefaults.warnings("acct_a", role, "3.3.4")
+    assert(w.size == 1 && w.head.startsWith("gluecat catalog 'acct_a': Hadoop 3.3.4 cannot send") &&
+      w.head.contains("or use Spark 4."))
+    assert(S3RoleDefaults.warnings("acct_a", role, "3.4.1").isEmpty)
   }
 }

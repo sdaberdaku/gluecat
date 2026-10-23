@@ -21,12 +21,30 @@ object S3RoleDefaults {
   private val BaseProvider = "fs.s3a.assumed.role.credentials.provider"
   private val AssumedRoleProvider = "org.apache.hadoop.fs.s3a.auth.AssumedRoleCredentialProvider"
 
-  /** hadoop-aws before 3.4 cannot send an external ID to STS. */
-  def externalIdUnsupported(options: GlueCatalogOptions, hadoopVersion: String = VersionInfo.getVersion): Boolean = {
-    val Array(major, minor) = hadoopVersion.split("\\.").take(2).map(_.takeWhile(_.isDigit).toInt)
-    options.assumeRoleArn.isDefined && options.credentialsProvider.isEmpty &&
-      options.assumeRoleExternalId.isDefined && (major < 3 || (major == 3 && minor < 4))
-  }
+  private def externalIdInPlay(o: GlueCatalogOptions) =
+    o.assumeRoleArn.isDefined && o.credentialsProvider.isEmpty && o.assumeRoleExternalId.isDefined
+
+  /** None when the version string cannot be parsed (e.g. "Unknown" from repackaged Hadoop jars). */
+  private def below34(version: String): Option[Boolean] = scala.util.Try {
+    val Array(major, minor) = version.split("\\.").take(2).map(_.takeWhile(_.isDigit).toInt)
+    major < 3 || (major == 3 && minor < 4)
+  }.toOption
+
+  /** hadoop-aws before 3.4 cannot send an external ID to STS; an unparseable version counts as supporting it. */
+  def externalIdUnsupported(options: GlueCatalogOptions, hadoopVersion: String = VersionInfo.getVersion): Boolean =
+    externalIdInPlay(options) && below34(hadoopVersion).getOrElse(false)
+
+  /** Warnings for the catalog `name`, at most one. */
+  def warnings(name: String, options: GlueCatalogOptions, hadoopVersion: String = VersionInfo.getVersion): Seq[String] =
+    if (!externalIdInPlay(options)) Nil
+    else below34(hadoopVersion) match {
+      case None => Seq(s"gluecat catalog '$name': Hadoop version '$hadoopVersion' could not be parsed; assuming " +
+        "S3A can send client.assume-role.external-id to STS.")
+      case Some(true) => Seq(s"gluecat catalog '$name': Hadoop $hadoopVersion cannot send " +
+        "client.assume-role.external-id to STS for S3A; no S3A defaults derived. Point " +
+        "hadoop.fs.s3a.assumed.role.arn at a data role without an external-id condition, or use Spark 4.")
+      case Some(false) => Nil
+    }
 
   def derive(options: GlueCatalogOptions, session: SessionHadoop,
       hadoopVersion: String = VersionInfo.getVersion): Map[String, String] =
@@ -34,7 +52,7 @@ object S3RoleDefaults {
       case Some(arn) if options.credentialsProvider.isEmpty && !externalIdUnsupported(options, hadoopVersion) =>
         val base = if (session.userSet(BaseProvider).nonEmpty) None else {
           val kept = session.effective(Provider).toSeq.flatMap(_.split(",")).map(_.trim)
-            .filter(p => p.nonEmpty && !p.endsWith("AssumedRoleCredentialProvider"))
+            .filter(p => p.nonEmpty && p != AssumedRoleProvider && !p.endsWith("." + AssumedRoleProvider.split("\\.").last))
           if (kept.isEmpty) None else Some(kept.mkString(","))
         }
         Map(

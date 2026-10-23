@@ -37,10 +37,7 @@ class GlueCatalog extends TableCatalog with StagingTableCatalog with SupportsNam
       SparkVersionCheck.requireSupported(SPARK_VERSION)
       glueOptions = GlueCatalogOptions.parse(name, options.asCaseSensitiveMap)
       DeltaFormatSupport.requireUpdateCatalogHookOff()
-      if (S3RoleDefaults.externalIdUnsupported(glueOptions))
-        log.warn(s"gluecat catalog '$name': Hadoop ${org.apache.hadoop.util.VersionInfo.getVersion} cannot send " +
-          "client.assume-role.external-id to STS for S3A; no S3A defaults derived. Point " +
-          "hadoop.fs.s3a.assumed.role.arn at a data role without an external-id condition, or use Spark 4.")
+      S3RoleDefaults.warnings(name, glueOptions).foreach(w => log.warn(w))
       hadoopOptions = TableHadoopOptions(S3RoleDefaults.effective(glueOptions,
         SessionHadoop(SparkSession.active.sessionState.newHadoopConf())))
       // Keys only: values may hold credentials.
