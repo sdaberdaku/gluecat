@@ -1,11 +1,13 @@
 name: CI
 
-# Pull requests run the full matrix, the compatibility suites and the docs build; `ci-ok` is the required status
-# check of the `main` branch protection, so a merge needs every row green. Pushes to `main` run nothing here: the
-# merged tree is the one the pull request tested (branches must be up to date), `pages.yml` publishes the site and
-# `release.yml` runs the matrix again on the tag before publishing.
+# Pull requests that are ready for review run the full matrix, the compatibility suites and the docs build; `ci-ok`
+# is the required status check of the `main` branch protection, so a merge needs every row green. Draft pull requests
+# run nothing (mark the PR ready for review to start the run; later pushes re-run it). Pushes to `main` run nothing
+# here: the merged tree is the one the pull request tested (branches must be up to date), `pages.yml` publishes the
+# site and `release.yml` runs the matrix again on the tag before publishing.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       full:
@@ -24,6 +26,7 @@ permissions:
 
 jobs:
   plan:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.select.outputs.matrix }}
@@ -97,7 +100,7 @@ jobs:
   # build succeeded (a skipped or cancelled job is a failure here).
   ci-ok:
     needs: [test, compat, docs]
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: ubuntu-latest
     steps:
       - run: |
