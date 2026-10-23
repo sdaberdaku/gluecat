@@ -1,8 +1,12 @@
 package io.github.sdaberdaku.gluecat.it
 
+import java.net.URI
+
 import scala.collection.JavaConverters._
 
+import org.apache.hadoop.fs.FileSystem
 import org.apache.spark.sql.AnalysisException
+import org.apache.spark.sql.delta.DeltaLog
 import org.junit.runner.RunWith
 import org.scalatestplus.junit.JUnitRunner
 import software.amazon.awssdk.services.s3.model.S3Exception
@@ -18,8 +22,8 @@ class HadoopOptionsIT extends SparkIT(Named) {
     "hadoop.fs.s3a.connection.ssl.enabled" -> "false")
 
   // hadoop-aws 3.3 (Spark 3.5, SDK v1) needs the STS endpoint to reach MiniStack. hadoop-aws 3.4 (Spark 4.x) builds a
-  // configured STS endpoint with the SDK bundle's shaded URIBuilder, which these modules exclude; there StsToMiniStack
-  // sends S3A's STS calls to MiniStack like every other SDK v2 call.
+  // configured STS endpoint with the SDK bundle's shaded URIBuilder, which these modules exclude; there StsToMiniStack,
+  // which redirects every SDK v2 STS client in the test JVM, sends S3A's STS calls to MiniStack.
   private val StsEndpoint =
     if (org.apache.spark.SPARK_VERSION.startsWith("3.")) Map(
       "hadoop.fs.s3a.assumed.role.sts.endpoint" -> MiniStack.Endpoint,
@@ -64,15 +68,31 @@ class HadoopOptionsIT extends SparkIT(Named) {
   }
 
   override def afterAll(): Unit =
-    try glueB.close()
+    try Seq("wh-a", "wh-p", "wh-c", "wh-a2", "wh-b", "direct-a").foreach(evict)
+    finally try glueB.close()
     finally super.afterAll()
+
+  /** Makes the next statement the first touch of `bucket` in this JVM: closes Hadoop's cached FileSystem for it (the
+    * cache key is scheme, authority and user, not the configuration, so `get` returns the instance in use) and drops
+    * Delta's cached logs. */
+  private def evict(bucket: String): Unit = {
+    FileSystem.get(URI.create(s"s3a://$bucket/"), spark.sparkContext.hadoopConfiguration).close()
+    DeltaLog.clearCache()
+  }
+
+  private def count(sql: String): Long = spark.sql(sql).head().getLong(0)
 
   test("Delta through the catalog uses the catalog's S3A endpoint while the session's is unreachable") {
     spark.sql("CREATE DATABASE acct_s3.db")
     spark.sql("CREATE TABLE acct_s3.db.t USING delta AS SELECT 1 AS id")
+    // Each statement below opens wh-a afresh, through the loaded table's storage properties, not the CTAS's instance.
+    evict("wh-a")
     spark.sql("INSERT INTO acct_s3.db.t VALUES (2)")
-    assert(spark.sql("SELECT count(*) FROM acct_s3.db.t").head().getLong(0) == 2)
-    assert(spark.sql("SELECT count(*) FROM acct_s3.db.t VERSION AS OF 0").head().getLong(0) == 1)
+    evict("wh-a")
+    assert(count("SELECT count(*) FROM acct_s3.db.t") == 2)
+    evict("wh-a")
+    assert(count("SELECT count(*) FROM acct_s3.db.t VERSION AS OF 0") == 1)
+    evict("wh-a")
     spark.sql("REFRESH TABLE acct_s3.db.t")
     assert(S3Fixture.listKeys("111111111111", "wh-a", "warehouse/db.db/t/_delta_log/")
       .exists(_.endsWith("00000000000000000001.json")))
@@ -90,7 +110,7 @@ class HadoopOptionsIT extends SparkIT(Named) {
     // Delta's by-path create takes no write options, so only gluecat's priming of the FileSystem cache reaches it.
     spark.sql("CREATE TABLE acct_s3.db.c (id INT) USING delta LOCATION 's3a://wh-c/c'")
     spark.sql("INSERT INTO acct_s3.db.c VALUES (1)")
-    assert(spark.sql("SELECT count(*) FROM acct_s3.db.c").head().getLong(0) == 1)
+    assert(count("SELECT count(*) FROM acct_s3.db.c") == 1)
     assert(S3Fixture.listKeys("111111111111", "wh-c", "c/_delta_log/").exists(_.endsWith("00000000000000000000.json")))
   }
 
@@ -104,7 +124,8 @@ class HadoopOptionsIT extends SparkIT(Named) {
   test("the inherited role: data lands in the role's account bucket, invisible to the base identity") {
     spark.sql("CREATE DATABASE acct_role_s3.db")
     spark.sql("CREATE TABLE acct_role_s3.db.t USING delta AS SELECT 1 AS id")
-    assert(spark.sql("SELECT count(*) FROM acct_role_s3.db.t").head().getLong(0) == 1)
+    evict("wh-b") // the read opens wh-b through the loaded table's storage properties
+    assert(count("SELECT count(*) FROM acct_role_s3.db.t") == 1)
     assert(S3Fixture.listKeys("222222222222", "wh-b", "warehouse/db.db/t/_delta_log/").nonEmpty)
     // Another account's bucket: MiniStack answers 403, as AWS does.
     assert(intercept[S3Exception](S3Fixture.listKeys("111111111111", "wh-b", "")).statusCode() == 403)
@@ -114,7 +135,8 @@ class HadoopOptionsIT extends SparkIT(Named) {
     // Glue still goes through the role (account 222222222222); S3 uses the base keys, so wh-a2 of 111111111111.
     spark.sql("CREATE DATABASE acct_role_off.db_off")
     spark.sql("CREATE TABLE acct_role_off.db_off.t USING delta AS SELECT 1 AS id")
-    assert(spark.sql("SELECT count(*) FROM acct_role_off.db_off.t").head().getLong(0) == 1)
+    evict("wh-a2")
+    assert(count("SELECT count(*) FROM acct_role_off.db_off.t") == 1)
     assert(glueB.listTableNames("db_off") == Seq("t"))
     assert(S3Fixture.listKeys("111111111111", "wh-a2", "warehouse/db_off.db/t/_delta_log/").nonEmpty)
   }
@@ -122,7 +144,7 @@ class HadoopOptionsIT extends SparkIT(Named) {
   test("the Glue entry has no fs.* parameters") {
     Seq(glue.getTable("db", "t"), glueB.getTable("db", "t")).foreach { t => // acct_s3's and acct_role_s3's
       val keys = t.parameters().keySet().asScala ++ t.storageDescriptor().serdeInfo().parameters().keySet().asScala
-      assert(!keys.exists(_.startsWith("fs.")), s"${t.name()}: $keys")
+      assert(!keys.exists(_.contains("fs.s3a.")), s"${t.name()}: $keys")
     }
   }
 }
