@@ -1,6 +1,7 @@
 package io.github.sdaberdaku.gluecat.catalog
 
-import org.apache.spark.sql.connector.catalog.TableChange
+import org.apache.spark.sql.connector.catalog.{ColumnDefaultValue, TableChange}
+import org.apache.spark.sql.connector.expressions.Expressions
 import org.apache.spark.sql.types._
 import org.junit.runner.RunWith
 import org.scalatest.funsuite.AnyFunSuite
@@ -34,6 +35,11 @@ class SchemaChangesSuite extends AnyFunSuite {
   test("add column after a missing column names it") {
     val c = addAt(TableChange.ColumnPosition.after("missing"))
     assert(intercept[IllegalArgumentException](apply(c)).getMessage.contains("missing"))
+  }
+  test("add column with a default value is refused naming the column") {
+    val c = TableChange.addColumn(Array("c"), LongType, true, null, null,
+      new ColumnDefaultValue("1", Expressions.literal(java.lang.Long.valueOf(1L))))
+    assert(intercept[UnsupportedOperationException](apply(c)).getMessage.contains("column c"))
   }
   test("delete column") {
     assert(apply(TableChange.deleteColumn(Array("a"), false)).fieldNames.toSeq == Seq("b"))

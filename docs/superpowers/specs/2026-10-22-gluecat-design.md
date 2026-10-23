@@ -178,7 +178,7 @@ one fails.
 | CREATE TABLE (managed, no LOCATION) | yes, location derived (below) | yes, metadata only |
 | CTAS, `saveAsTable` | yes, with Delta's semantics | no |
 | REPLACE TABLE, RTAS, `saveAsTable` overwrite | yes, with Delta's semantics | no |
-| ALTER TABLE | Delta applies it in the log; column changes also re-sync the Glue entry's columns and schema; SET LOCATION updates the Glue location; properties stay in the log. Never through `spark_catalog` | properties, comment, columns, location in Glue |
+| ALTER TABLE | Delta applies it in the log; column changes also re-sync the Glue entry's columns and schema; SET LOCATION updates the Glue location; properties stay in the log. Never through `spark_catalog` | properties, comment, columns (`ADD COLUMN ... DEFAULT` refused: the entry cannot keep the default), location in Glue |
 | REFRESH TABLE | re-syncs the Glue entry's columns and schema from the Delta log (needs Glue write access) | no-op |
 | RENAME | yes, Glue entry only, data stays in place | same |
 | DROP | removes the Glue entry, never deletes data | same |

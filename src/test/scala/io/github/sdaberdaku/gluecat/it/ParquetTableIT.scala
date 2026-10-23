@@ -89,6 +89,14 @@ abstract class ParquetTableIT(mode: Mode) extends SparkIT(mode) {
     assert(selected("p_add") == Seq("id", "x", "p"))
   }
 
+  test("ADD COLUMNS with a DEFAULT value is refused and leaves the Glue entry alone") {
+    createParquet("p_default")
+    val before = glue.getTable("db", "p_default").versionId()
+    val e = intercept[Exception](spark.sql(s"ALTER TABLE ${tbl("db", "p_default")} ADD COLUMNS (x INT DEFAULT 1)"))
+    assert(fullMessage(e).contains("DEFAULT is supported for Delta tables only (column x)"))
+    assert(glue.getTable("db", "p_default").versionId() == before)
+  }
+
   test("SHOW TABLES lists the table") {
     createParquet("p_show")
     assert(tableNames("db").contains("p_show"))

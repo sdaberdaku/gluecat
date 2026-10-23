@@ -22,6 +22,10 @@ object SchemaChanges {
   private def applyOne(schema: StructType, change: TableChange): StructType = change match {
     case c: AddColumn =>
       val name = top(c, c.fieldNames())
+      // The V1 schema has nowhere to keep it, so it would be dropped silently.
+      if (c.defaultValue() != null) {
+        throw new UnsupportedOperationException(s"ADD COLUMN ... DEFAULT is supported for Delta tables only (column $name)")
+      }
       val field = StructField(name, c.dataType(), c.isNullable)
       val withComment = Option(c.comment()).fold(field)(field.withComment)
       c.position() match {

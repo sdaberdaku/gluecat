@@ -238,7 +238,8 @@ The full list: [limitations](https://sdaberdaku.github.io/gluecat/limitations/).
   only as long as the application; in a Glue database `CREATE VIEW` fails with `SCHEMA_NOT_FOUND`. Temporary views
   work in both modes. Materialized views are not supported.
 - Generated columns and column `DEFAULT` values are refused: Spark refuses generated columns because the catalog
-  declares no support for them, and Delta refuses `ADD COLUMN ... DEFAULT`.
+  declares no support for them; Delta refuses `ADD COLUMN ... DEFAULT`, and the catalog refuses it for other tables,
+  whose Glue entry has nowhere to keep the default.
 - `DROP` never deletes data and `PURGE` is not supported. This differs from Spark's managed tables: dropped managed
   tables leave their directories under `<warehouse>/<db>.db/` or the database location, and repeated create and drop
   cycles accumulate data there that has to be cleaned up separately.
