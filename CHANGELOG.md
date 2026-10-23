@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.1.0 - unreleased
+
+- Per-catalog Hadoop options: `spark.sql.catalog.<name>.hadoop.<key>` applies to every table the catalog loads,
+  creates or replaces. Nothing is written to Glue or the Delta log. Only `fs.*` and `dfs.*` keys reach Delta.
+- S3A inherits the catalog's role by default. A catalog with `client.assume-role.arn` (and no
+  `client.credentials-provider`) now makes S3A assume the same role for its tables' files. This changes behaviour for
+  existing catalogs with a role: set `hadoop.fs.s3a.aws.credentials.provider` to opt out. Session per-bucket keys
+  (`fs.s3a.bucket.<name>.*`) still win.
+- `http-client.*` options (client type, timeouts, pool size, proxy) for the Glue and STS clients, with Iceberg's names.
+  `software.amazon.awssdk:apache-client` and `url-connection-client` are optional `provided` dependencies.
+- The integration tests run under IAM enforcement, with a role that has exactly ten Glue actions. That policy is
+  published in the documentation.
+- New documentation page, "Across AWS accounts": identity model, IAM pieces, regions, sessions, S3, a worked example
+  and troubleshooting.
+
 ## 1.0.0 - 2026-10-23
 
 First release.

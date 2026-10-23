@@ -43,3 +43,51 @@ The Glue columns of a Delta table are written at create, replace, `ALTER TABLE` 
 `REFRESH TABLE`. Schema evolution inside writes (`mergeSchema`, `MERGE ... WITH SCHEMA EVOLUTION`) does not update
 them: run SQL `REFRESH TABLE` after those, which needs Glue write access. `spark.catalog.refreshTable` does not
 re-sync the columns. See [How it works](how-it-works.md#column-sync).
+
+## IAM permissions
+
+The identity that gluecat uses for Glue (the catalog's role, or the caller when there is no role) needs these ten Glue
+actions:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "glue:CreateDatabase",
+        "glue:GetDatabase",
+        "glue:GetDatabases",
+        "glue:UpdateDatabase",
+        "glue:DeleteDatabase",
+        "glue:CreateTable",
+        "glue:GetTable",
+        "glue:GetTables",
+        "glue:UpdateTable",
+        "glue:DeleteTable"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+CI runs the whole integration suite under a role with exactly this policy, on an emulator that enforces IAM, so an
+action outside the list fails the build. Read-only use (listing, loading and reading tables) needs only the
+`glue:Get*` actions; `REFRESH TABLE` on a Delta table and every create, alter, rename and drop need the write ones.
+
+The emulator's Glue resource ARNs are coarser than AWS's, so CI cannot check a narrower `Resource`. On AWS, Glue
+evaluates three kinds of ARN, and an action needs the ones above its object in the hierarchy as well:
+
+| Object | ARN |
+|---|---|
+| Catalog | `arn:aws:glue:<region>:<account>:catalog` |
+| Database | `arn:aws:glue:<region>:<account>:database/<db>` |
+| Table | `arn:aws:glue:<region>:<account>:table/<db>/<table>` |
+
+To limit a role to one database, list the catalog ARN, `database/<db>` and `table/<db>/*` as `Resource`. The
+`<region>` and `<account>` are those of the Glue catalog (`client.region` and `glue.id`). Check a narrowed policy
+against your own account before relying on it. Data access is separate: the same role also needs S3 permissions for
+the table locations when [S3 access follows the catalog role](configuration.md#derived-s3-defaults). See
+[Across AWS accounts](multi-account.md).

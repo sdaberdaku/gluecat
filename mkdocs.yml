@@ -29,6 +29,7 @@ nav:
   - Home: index.md
   - Quick start: quickstart.md
   - Configuration: configuration.md
+  - Across AWS accounts: multi-account.md
   - Operations: operations.md
   - Glue entry format: glue-entry-format.md
   - How it works: how-it-works.md

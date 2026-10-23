@@ -1,5 +1,37 @@
 # How it works
 
+## Per-catalog Hadoop configuration {#per-catalog-hadoop-configuration}
+
+The `hadoop.*` options and the derived S3 defaults (see [Configuration](configuration.md#per-table-hadoop-options))
+have to reach the Hadoop configuration that Delta and Spark use for one table, while a session shares one Hadoop
+configuration between all catalogs. They travel as table storage properties, the mechanism both already honour.
+
+- Loads: the `CatalogTable` that gluecat hands out carries the options in `storage.properties` (the table's own
+  properties win). Delta copies the `fs.*` and `dfs.*` keys from there into the Hadoop configuration of its
+  `DeltaLog` (`DeltaTableV2.deltaLog`). For other data sources, Spark applies every storage property to the Hadoop
+  configuration of the read or write (`newHadoopConfWithOptions`). Reads, inserts, time travel, `REFRESH` and
+  non-Delta tables are covered this way.
+- Staged writes (CTAS, `REPLACE ... AS SELECT`, `CREATE OR REPLACE ... AS SELECT`, `writeTo`): the options are added
+  to the write options of the staged table's `WriteBuilder`, and Delta builds its Hadoop configuration from them. The
+  caller's own options win, including those from SQL `OPTIONS (...)`. While Delta's
+  `spark.databricks.delta.legacy.storeOptionsAsProperties` is `true`, Delta would persist every write option in the
+  table metadata, so gluecat adds none and logs one warning per catalog.
+- Everything else that opens the table's location (a plain `CREATE`, `REPLACE` without a query, the load by path after
+  a create, `SET LOCATION`): gluecat opens the location's `FileSystem` with the catalog's configuration first.
+
+Nothing is written into the Glue entry or the Delta log. The options are never table properties (`option.<key>`),
+because Delta would store those in the log.
+
+### The FileSystem cache
+
+Hadoop caches `FileSystem` instances by scheme, bucket and user, not by configuration. The first access to a bucket in
+a JVM fixes its credentials and endpoint. gluecat's own calls open the location with the catalog's configuration so
+that the cache holds the right instance before Delta or Spark ask with the session configuration, and it relies on the
+cache being enabled. It does not disable the cache: a new, never-closed `S3AFileSystem` per configuration on every
+executor task would leak. The operator's rule is one bucket, one way: through one catalog's role or through the
+session configuration, never both. Direct path access (`` delta.`s3://...` ``, `spark.read.parquet`) never reaches a
+catalog and uses the session configuration.
+
 ## Why Delta's create path cannot be used as is
 
 Delta's create path (`CreateDeltaTableCommand`) registers a new or replaced table through the catalog that
@@ -115,5 +147,5 @@ Glue and AWS errors map to Spark exceptions in one place, used by every code pat
 | `AlreadyExistsException` on a table call | `TableAlreadyExistsException` |
 | `AlreadyExistsException` on a database call | `NamespaceAlreadyExistsException` |
 | `ConcurrentModificationException` (stale `VersionId`) | a retryable exception of this library |
-| `AccessDeniedException`, STS errors, other AWS errors | the AWS exception, wrapped, with catalog name and `glue.id` |
+| `AccessDeniedException`, STS errors, other AWS errors | the AWS exception, wrapped, with the catalog name, the `glue.id` and the role ARN when there is one |
 | Glue write failed after a Delta commit | `DeltaCommittedButGlueFailedException` |

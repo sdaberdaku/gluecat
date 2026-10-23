@@ -557,12 +557,11 @@ minor according to Delta's compatibility table, crossed with every JDK that Spar
 on the last patch it runs on (Delta 4.1.0 and 4.2.0 fail every Delta `ALTER TABLE` on Spark 4.1.2 and later, so they
 run on 4.1.1). Keep the matrix in one place so adding a Spark, Delta or JDK release is a one-line change.
 
-The full matrix is about 40 jobs; at roughly 5 minutes each that is about 200 runner minutes per run,
-and GitHub Free gives a private repository 2,000 minutes a month. So, while the repository is private,
-pull requests and pushes to `main` run a smoke matrix (the oldest and newest Spark/Delta/JDK combination
-of each artifact), and the full matrix runs on tags and on manual dispatch. Once the repository is
-public (Actions minutes are free for public repositories), pushes to `main` run the full matrix too. Public since
-2026-10-22: pushes to `main` run the full matrix, pull requests the smoke rows.
+The full matrix is about 40 jobs; at roughly 5 minutes each that is about 200 runner minutes per run. The
+repository is public (since 2026-10-22), so Actions minutes are free. Pull requests that are not drafts run every
+matrix row, the compatibility suites and the docs build; drafts run nothing. The `ci-ok` job summarises them and is
+the required status check of the `main` branch protection. Pushes to `main` run nothing (the merged tree is the one
+the pull request tested; `pages.yml` publishes the site), and `release.yml` runs the full matrix again on a tag.
 
 ## Release
 
