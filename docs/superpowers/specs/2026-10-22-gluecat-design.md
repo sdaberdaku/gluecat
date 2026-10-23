@@ -542,7 +542,7 @@ Then:
   checks that it contains no `software/amazon/`, `org/reactivestreams/` or
   `META-INF/services/software.amazon.*` entries and no signature files, and that `GlueCatalog.class` is
   present; the published POM lists `glue` and `sts` as `provided` and nothing from the SDK at compile or
-  runtime scope.
+  runtime scope (`PublishedPomSuite` parses the module's `pom.xml`).
 - A Trino container with the Delta Lake connector on the same MiniStack Glue reads, by name, a Delta table
   gluecat created, including rows added by a later INSERT and a partitioned CTAS.
 - Spark 3.5 with the Glue Hive client (SDK v1, patched Hive) on the same MiniStack Glue reads gluecat's
