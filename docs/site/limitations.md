@@ -55,14 +55,16 @@
 - Hadoop's `FileSystem` cache is keyed by scheme, bucket and user, not by configuration: the first access to a bucket
   in a JVM fixes its credentials and endpoint. Reach each bucket one way only, through one catalog's role or through
   the session configuration, never both. gluecat relies on the cache being enabled (Hadoop's default). Direct path
-  access (`` delta.`s3://...` ``, `spark.read.parquet`) always uses the session configuration. See
+  access (`` delta.`s3://...` ``, `spark.read.parquet`) uses whatever the cache already holds for that bucket, else the
+  session configuration. See
   [Configuration](configuration.md#one-bucket-one-way).
 - `hadoop.*` options reach Delta only as `fs.*` and `dfs.*` keys; other Hadoop keys reach non-Delta data sources only.
   With `spark.databricks.delta.legacy.storeOptionsAsProperties` on, Delta writes get the options only through the
   cached `FileSystem`, not as write options.
-- `fs.s3a.assumed.role.external.id` exists in Hadoop 3.4 (Spark 4.x) only; Spark 3.5's Hadoop 3.3 ignores it. On
-  Spark 3.5 a catalog without a role needs `hadoop.fs.s3a.endpoint.region` (or the session's) to avoid a 301 from S3.
-- Tested against MiniStack (a local AWS emulator) only. The suite runs under IAM enforcement and a role with exactly the published Glue policy, but
-  the emulator's Glue resource ARNs are coarser than AWS's, so resource-scoped policies, Glue resource policies and cross-account
-  `CatalogId` access are not exercised against real AWS. Cross-account behaviour is tested by request shape (which
+- `fs.s3a.assumed.role.external.id` exists in Hadoop 3.4 (Spark 4.x) only. On Spark 3.5 (Hadoop 3.3) a catalog with
+  `client.assume-role.external-id` derives nothing for S3A and logs one warning, because S3A could not send the
+  external ID. Use `hadoop.fs.s3a.assumed.role.arn` with a data role that has no external ID condition, or Spark 4.x.
+- Tested against MiniStack (a local AWS emulator) only. The suite runs under IAM enforcement and a role with exactly the published Glue policy,
+  but the emulator's Glue resource ARNs are coarser than AWS's, so resource-scoped policies, Glue resource policies and
+  cross-account `CatalogId` access are not exercised against real AWS. Cross-account behaviour is tested by request shape (which
   `CatalogId` and which STS identity each call uses), not by AWS authorization outcomes.

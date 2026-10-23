@@ -27,9 +27,10 @@ a Hive metastore, and Delta Lake works only through that catalog (`DeltaCatalog`
 installing AWS's Glue Data Catalog client for Hive, patched Hive jars and the AWS SDK v1 included, and plugging it into
 that one session catalog. The result is one Glue catalog ID and one set of credentials for the whole Spark application.
 
-When each customer, team or environment has its own AWS account, the S3 data can already live in each account, but every Delta table still has to be registered in one shared Glue catalog. A single
-Spark application, for example a Spark Connect server that runs jobs for several accounts, cannot register account
-A's tables in account A's Glue and account B's tables in account B's Glue.
+When each customer, team or environment has its own AWS account, the S3 data can already live in each account, but
+every Delta table still has to be registered in one shared Glue catalog. A single Spark application, for example a
+Spark Connect server that runs jobs for several accounts, cannot register account A's tables in account A's Glue and
+account B's tables in account B's Glue.
 
 Iceberg's `GlueCatalog` already gives each named catalog its own Glue catalog ID and IAM role. gluecat brings that
 model to Glue tables in general and to Delta tables in particular. Its option names follow Iceberg's AWS properties.
@@ -85,6 +86,7 @@ spark.sql.catalog.acct_a.glue.id                         = 111111111111
 spark.sql.catalog.acct_a.client.region                   = eu-central-1
 spark.sql.catalog.acct_a.client.assume-role.arn          = arn:aws:iam::111111111111:role/glue-access
 # optional
+# urlconnection needs software.amazon.awssdk:url-connection-client on the classpath
 spark.sql.catalog.acct_a.http-client.type                = urlconnection
 spark.sql.catalog.acct_a.hadoop.fs.s3a.connection.maximum = 100
 spark.sql.catalog.acct_a.warehouse                       = s3://bucket-a/warehouse
@@ -106,7 +108,7 @@ CREATE DATABASE acct_b.db;
 CREATE TABLE acct_b.db.events USING delta LOCATION 's3://bucket-b/db/events' AS SELECT * FROM acct_a.db.events;
 ```
 
-A catalog never calls any Glue catalog other than its own `glue.id`. With `client.assume-role.arn`, S3A assumes the
+A catalog never calls any Glue catalog other than its own `glue.id`. With `client.assume-role.arn` and no `client.credentials-provider`, S3A assumes the
 same role for the files of the catalog's tables. More: [across AWS accounts](https://sdaberdaku.github.io/gluecat/multi-account/).
 
 ### As `spark_catalog`
@@ -191,8 +193,9 @@ last `client.assume-role.timeout-sec` (3600 s by default) and refresh on the cal
 
 ## Supported operations
 
-Integration tests cover these rows in both catalog modes, under a role that has exactly the Glue actions listed in the documentation's IAM policy; a few non-Delta details (managed-table locations, column
-changes) are covered by unit tests. More detail:
+Integration tests cover these rows in both catalog modes, under a role that has exactly the Glue actions listed in the
+documentation's IAM policy; a few non-Delta details (managed-table locations, column changes) are covered by unit
+tests. More detail:
 [operations](https://sdaberdaku.github.io/gluecat/operations/).
 
 | Operation | Delta tables | Other data source tables (Parquet, ORC, CSV, JSON, ...) |
@@ -295,10 +298,10 @@ The full list: [limitations](https://sdaberdaku.github.io/gluecat/limitations/).
   DNS for VPC endpoints).
 - Hadoop's `FileSystem` cache is keyed by scheme, bucket and user, not by configuration: the first access to a bucket
   in a JVM fixes its credentials and endpoint. Reach each bucket one way only, through one catalog's role or through
-  the session configuration, never both. Direct path access (`` delta.`s3://...` ``, `spark.read.parquet`) always uses
-  the session configuration.
+  the session configuration, never both. Direct path access (`` delta.`s3://...` ``, `spark.read.parquet`) uses
+  whatever the cache already holds for that bucket, else the session configuration.
 - `hadoop.*` options reach Delta only as `fs.*` and `dfs.*` keys. `fs.s3a.assumed.role.external.id` exists in Hadoop
-  3.4 (Spark 4.x) only.
+  3.4 (Spark 4.x) only; on Spark 3.5 a catalog with `client.assume-role.external-id` derives nothing for S3A.
 - Tested against MiniStack (a local AWS emulator) only, under IAM enforcement with a role that has exactly the
   published Glue policy: resource-scoped policies, Glue resource policies and cross-account
   `CatalogId` access are not exercised against real AWS. Cross-account behaviour is tested by request shape (which
