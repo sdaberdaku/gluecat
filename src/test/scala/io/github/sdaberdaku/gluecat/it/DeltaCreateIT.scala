@@ -210,17 +210,54 @@ abstract class DeltaCreateIT(mode: Mode) extends SparkIT(mode) {
     noPathLookups()
   }
 
+  // Every commit of the table's Delta log, as text.
+  private def deltaLogText(t: String): String = {
+    val dir = new File(new File(new URI(glue.getTable("db", t).storageDescriptor().location()).getPath), "_delta_log")
+    dir.listFiles().filter(_.getName.endsWith(".json")).sortBy(_.getName)
+      .map(f => new String(java.nio.file.Files.readAllBytes(f.toPath), "UTF-8")).mkString("\n")
+  }
+  private val Injected = Seq("fs.s3a.endpoint", "fs.s3a.assumed.role.arn", "127.0.0.1:1", "role/data-a")
+  // Delta 3.3 and 4.0 show a loaded table's storage properties as option.<key>; 4.3 and later hide fs.* keys.
+  private val deltaHidesFsOptions = {
+    val Array(major, minor) = io.delta.VERSION.split("\\.").take(2).map(_.takeWhile(_.isDigit).toInt)
+    major > 4 || major == 4 && minor >= 3
+  }
+  private def assertNothingInjected(t: String): Unit = {
+    val log = deltaLogText(t)
+    Injected.foreach(s => assert(!log.contains(s), s"$t: Delta log holds $s"))
+    val entry = glue.getTable("db", t)
+    val keys = entry.parameters().asScala.keys ++ entry.storageDescriptor().serdeInfo().parameters().asScala.keys
+    assert(!keys.exists(_.startsWith("fs.")), s"$t: $keys")
+    if (deltaHidesFsOptions) {
+      val props = spark.sql(s"SHOW TBLPROPERTIES acct_h.db.$t").collect().map(_.getString(0)).toSeq
+      assert(!props.exists(_.stripPrefix("option.").startsWith("fs.")), s"$t: $props")
+    }
+  }
+
   if (mode == Named) test("the catalog's Hadoop options reach neither the Delta log nor Glue") {
     spark.sql("CREATE TABLE acct_h.db.h1 (id INT) USING delta")
     spark.sql("CREATE TABLE acct_h.db.h2 USING delta AS SELECT 1 AS id")
-    assert(spark.sql("SELECT * FROM acct_h.db.h2").count() == 1)
-    for (t <- Seq("h1", "h2")) {
-      val props = spark.sql(s"SHOW TBLPROPERTIES acct_h.db.$t").collect().map(_.getString(0)).toSeq
-      assert(!props.exists(_.stripPrefix("option.").startsWith("fs.")), s"$t: $props")
-      val entry = glue.getTable("db", t)
-      val keys = entry.parameters().asScala.keys ++ entry.storageDescriptor().serdeInfo().parameters().asScala.keys
-      assert(!keys.exists(_.startsWith("fs.")), s"$t: $keys")
-    }
+    spark.sql("REPLACE TABLE acct_h.db.h1 USING delta AS SELECT 2 AS id")
+    spark.sql("CREATE OR REPLACE TABLE acct_h.db.h3 USING delta AS SELECT 3 AS id")
+    spark.sql("CREATE OR REPLACE TABLE acct_h.db.h2 USING delta AS SELECT 4 AS id")
+    assert(spark.sql("SELECT id FROM acct_h.db.h2").collect().map(_.getInt(0)).toSeq == Seq(4))
+    Seq("h1", "h2", "h3").foreach(assertNothingInjected)
+  }
+
+  // Delta's legacy setting stores every write option in the table's metadata.
+  if (mode == Named) test("with Delta's legacy storeOptionsAsProperties on, no write option is injected") {
+    val conf = "spark.databricks.delta.legacy.storeOptionsAsProperties"
+    spark.conf.set(conf, "true")
+    try spark.sql("CREATE TABLE acct_h.db.h4 USING delta AS SELECT 1 AS id")
+    finally spark.conf.unset(conf)
+    assertNothingInjected("h4")
+  }
+
+  if (mode == Named) test("SQL OPTIONS on a CTAS still reach Delta through a catalog with Hadoop options") {
+    spark.sql("CREATE TABLE acct_h.db.h5 USING delta OPTIONS ('delta.appendOnly' = 'true') AS SELECT 1 AS id")
+    val props = spark.sql("SHOW TBLPROPERTIES acct_h.db.h5").collect().map(r => r.getString(0) -> r.getString(1)).toMap
+    assert(props.get("delta.appendOnly").contains("true"), props)
+    assertNothingInjected("h5")
   }
 
   test("ALTER TABLE ADD COLUMNS re-syncs the Glue columns") {

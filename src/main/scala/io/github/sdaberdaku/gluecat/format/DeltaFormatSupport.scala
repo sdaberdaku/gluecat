@@ -1,5 +1,7 @@
 package io.github.sdaberdaku.gluecat.format
 
+import java.util.concurrent.atomic.AtomicBoolean
+
 import scala.collection.JavaConverters._
 import scala.util.control.NonFatal
 
@@ -12,6 +14,7 @@ import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.connector.write.{LogicalWriteInfo, WriteBuilder}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
+import org.slf4j.LoggerFactory
 
 import io.github.sdaberdaku.gluecat.GlueCatalogOptions
 import io.github.sdaberdaku.gluecat.catalog._
@@ -148,9 +151,26 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
   }
 
   private def staged(ident: Identifier, location: String, spec: TableSpec, replace: Boolean)
-      (stage: Identifier => StagedTable): StagedTable =
-    new StagedGlueTable(stage(atPath(location)), hadoopOptions,
+      (stage: Identifier => StagedTable): StagedTable = {
+    val table = stage(atPath(location))
+    new StagedGlueTable(table, writeInfo(_, table.properties()),
       () => writeGlue(ident, location, spec, replace)(delta.loadTable(atPath(location))))
+  }
+
+  private val legacyOptionsWarned = new AtomicBoolean(false)
+
+  // Delta's legacy storeOptionsAsProperties writes every write option into the table's metadata, so the catalog's
+  // options stay out of the write while it is on; priming still gives the write the catalog's filesystem.
+  private def writeInfo(info: LogicalWriteInfo, stageProperties: java.util.Map[String, String]): LogicalWriteInfo =
+    if (!SparkSession.active.conf.get(DeltaFormatSupport.LegacyStoreOptions, "false").toBoolean) {
+      hadoopOptions.writeOptions(info, stageProperties)
+    } else {
+      if (hadoopOptions.values.nonEmpty && legacyOptionsWarned.compareAndSet(false, true)) {
+        DeltaFormatSupport.log.warn(s"gluecat catalog '$catalogName': ${DeltaFormatSupport.LegacyStoreOptions} is " +
+          "on, so Delta writes get the catalog's Hadoop options only through its FileSystem, not as write options")
+      }
+      info
+    }
 
   override def stageCreate(ident: Identifier, schema: StructType, partitions: Array[Transform],
       properties: java.util.Map[String, String]): StagedTable = {
@@ -235,6 +255,8 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
 
 object DeltaFormatSupport {
   private val DeltaCatalogClass = "org.apache.spark.sql.delta.catalog.DeltaCatalog"
+  private val LegacyStoreOptions = "spark.databricks.delta.legacy.storeOptionsAsProperties"
+  private val log = LoggerFactory.getLogger(classOf[DeltaFormatSupport])
 
   // The loader Spark itself uses for catalog plugins.
   private def loader: ClassLoader =
@@ -266,16 +288,16 @@ object DeltaFormatSupport {
 }
 
 /** Delta's staged table for the path, plus the Glue write once Delta has committed. Abort leaves Glue untouched. The
-  * write carries the catalog's Hadoop options as write options, which Delta uses and does not persist. */
-private final class StagedGlueTable(staged: StagedTable, hadoopOptions: TableHadoopOptions, afterCommit: () => Unit)
-    extends StagedTable with SupportsWrite {
+  * write's options come from `writeInfo` (the catalog's Hadoop options under the caller's). */
+private final class StagedGlueTable(staged: StagedTable, writeInfo: LogicalWriteInfo => LogicalWriteInfo,
+    afterCommit: () => Unit) extends StagedTable with SupportsWrite {
   override def name(): String = staged.name()
   override def schema(): StructType = staged.schema()
   override def partitioning(): Array[Transform] = staged.partitioning()
   override def properties(): java.util.Map[String, String] = staged.properties()
   override def capabilities(): java.util.Set[TableCapability] = staged.capabilities()
   override def newWriteBuilder(info: LogicalWriteInfo): WriteBuilder =
-    staged.asInstanceOf[SupportsWrite].newWriteBuilder(hadoopOptions.writeOptions(info))
+    staged.asInstanceOf[SupportsWrite].newWriteBuilder(writeInfo(info))
   override def commitStagedChanges(): Unit = { staged.commitStagedChanges(); afterCommit() }
   override def abortStagedChanges(): Unit = staged.abortStagedChanges()
 }
