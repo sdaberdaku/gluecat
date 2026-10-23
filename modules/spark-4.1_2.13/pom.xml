@@ -23,6 +23,7 @@
     <delta.version>4.4.1</delta.version>
     <delta.artifact>delta-spark_4.1_2.13</delta.artifact>
     <java.release>17</java.release>
+    <hadoop.aws.version>3.4.1</hadoop.aws.version>
   </properties>
 
   <dependencies>
@@ -93,6 +94,34 @@
       <!-- TrinoCompat*IT; loaded only when TRINO_URL is set -->
       <groupId>io.trino</groupId>
       <artifactId>trino-jdbc</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <!-- S3A integration tests; the SDK v2 modules below replace hadoop-aws's SDK bundle (one copy of the SDK) -->
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-aws</artifactId>
+      <version>${hadoop.aws.version}</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>bundle</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>s3</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>s3-transfer-manager</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>netty-nio-client</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>

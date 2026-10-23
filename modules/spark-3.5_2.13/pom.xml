@@ -22,6 +22,7 @@
     <spark.minor>3.5</spark.minor>
     <delta.version>3.3.3</delta.version>
     <java.release>8</java.release>
+    <hadoop.aws.version>3.3.4</hadoop.aws.version>
   </properties>
 
   <dependencies>
@@ -92,6 +93,19 @@
       <!-- TrinoCompat*IT; loaded only when TRINO_URL is set -->
       <groupId>io.trino</groupId>
       <artifactId>trino-jdbc</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <!-- S3A integration tests (SDK v1 bundle, does not collide with SDK v2) -->
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-aws</artifactId>
+      <version>${hadoop.aws.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <!-- S3Fixture -->
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>s3</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
