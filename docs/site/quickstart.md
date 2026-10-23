@@ -30,7 +30,7 @@ spark.sql.catalog.acct_a.glue.id                         = 111111111111
 spark.sql.catalog.acct_a.client.region                   = eu-central-1
 spark.sql.catalog.acct_a.client.assume-role.arn          = arn:aws:iam::111111111111:role/glue-access
 # optional
-spark.sql.catalog.acct_a.http-client.type                = urlconnection
+spark.sql.catalog.acct_a.http-client.apache.max-connections = 100
 spark.sql.catalog.acct_a.hadoop.fs.s3a.connection.maximum = 100
 spark.sql.catalog.acct_a.warehouse                       = s3://bucket-a/warehouse
 
@@ -53,9 +53,9 @@ CREATE TABLE acct_b.db.events USING delta LOCATION 's3://bucket-b/db/events' AS 
 
 A catalog never calls any Glue catalog other than its own `glue.id`.
 
-S3 access follows the catalog role: with `client.assume-role.arn` and no `client.credentials-provider`, S3A assumes the same role for the files of the
-catalog's tables, so the catalog needs no per-bucket S3A settings. S3A's own STS call uses the session's S3A credentials, as before.
-`hadoop.<key>` options override that per catalog.
+S3 access follows the catalog role: with `client.assume-role.arn` and no `client.credentials-provider`, S3A assumes
+the same role for the files of the catalog's tables, so the catalog needs no per-bucket S3A settings. S3A's own STS
+call uses the session's S3A credentials, as before. `hadoop.<key>` options override that per catalog.
 `http-client.type = urlconnection` needs `software.amazon.awssdk:url-connection-client` on the classpath. For several
 accounts and regions, roles, trust policies and troubleshooting, see [Across AWS accounts](multi-account.md).
 

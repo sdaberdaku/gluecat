@@ -17,7 +17,11 @@ configuration between all catalogs. They travel as table storage properties, the
   `spark.databricks.delta.legacy.storeOptionsAsProperties` is `true`, Delta would persist every write option in the
   table metadata, so gluecat adds none and logs one warning per catalog.
 - Everything else that opens the table's location (a plain `CREATE`, `REPLACE` without a query, the load by path after
-  a create, `SET LOCATION`): gluecat opens the location's `FileSystem` with the catalog's configuration first.
+  a create, `SET LOCATION`): gluecat opens the location's `FileSystem` with the catalog's configuration first. This
+  priming, like skipping the write options under the legacy flag, acts in the driver JVM only. Executor-side Delta work
+  for these by-path operations uses the session configuration in any multi-JVM deployment: snapshot reconstruction
+  when the latest log version has no `.crc` file (common for tables written by Trino or delta-rs), and data files
+  written while `storeOptionsAsProperties` is on.
 
 Nothing is written into the Glue entry or the Delta log. The options are never table properties (`option.<key>`),
 because Delta would store those in the log.
@@ -48,14 +52,15 @@ For Delta tables, every create, replace and CTAS runs on the path identifier `` 
 handles without any catalog, and gluecat then writes or updates the Glue entry itself.
 
 - `CREATE TABLE` without a query, and `writeStream.toTable` on a missing table (Spark creates the table with a plain
-  create, then streams into the loaded table): gluecat resolves the location (explicit, or derived for managed tables from the
-  database location or `warehouse`), calls `DeltaCatalog.createTable` with the path identifier, creates the Glue
-  entry, and returns the table loaded by name. If a Delta table already exists at the location, Delta's own rules
+  create, then streams into the loaded table): gluecat resolves the location (explicit, or derived for managed tables
+  from the database location or `warehouse`), calls `DeltaCatalog.createTable` with the path identifier, creates the
+  Glue entry, and returns the table loaded by name. If a Delta table already exists at the location, Delta's own rules
   apply: no columns given registers it as it is; columns given must match.
-- CTAS, RTAS, `saveAsTable` and `writeTo` `create`, `replace` and `createOrReplace`: gluecat returns a staged table that wraps Delta's
-  staged table for the path identifier, and Spark writes the query result into it. On commit, Delta commits by path
-  first (data and log), then gluecat creates or updates the Glue entry. An abort aborts Delta's stage and leaves Glue
-  untouched. A CTAS onto a location that already holds a Delta table fails the way Delta's path CTAS fails.
+- CTAS, RTAS, `saveAsTable` and `writeTo` `create`, `replace` and `createOrReplace`: gluecat returns a staged table
+  that wraps Delta's staged table for the path identifier, and Spark writes the query result into it. On commit,
+  Delta commits by path first (data and log), then gluecat creates or updates the Glue entry. An abort aborts Delta's
+  stage and leaves Glue untouched. A CTAS onto a location that already holds a Delta table fails the way Delta's path
+  CTAS fails.
 - Path identifiers need `spark.sql.runSQLOnFiles = true` (the default). With it off, creates and replaces fail
   before Delta writes anything.
 

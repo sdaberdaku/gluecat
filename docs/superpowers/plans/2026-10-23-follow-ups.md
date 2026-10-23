@@ -29,6 +29,13 @@ From the whole-branch review of 2026-10-23. None blocks 1.0.0; each is small.
 - Test robustness: compat suites are order-dependent within a suite; a few `intercept[Exception]` could pin the
   reason; `PublishedPomSuite` should use `basedir` so it also runs from an IDE.
 
+## 1.1.1 candidates
+
+From the 1.1.0 whole-branch review of 2026-10-24.
+
+- Pass the catalog's Hadoop options into Delta's by-path operations; a suite with `fs.s3a.impl.disable.cache=true`
+  covering loads, INSERT and CTAS.
+
 ## Proposed feature (not started)
 
 - `glue.sync-schema-on-commit` (default off): a `QueryExecutionListener` that re-syncs the Glue columns of a Delta

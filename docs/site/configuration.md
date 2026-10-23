@@ -17,7 +17,7 @@ Options go under `spark.sql.catalog.<name>.`.
 | `client.assume-role.timeout-sec` | `3600` | Session duration in seconds; a positive integer. |
 | `hadoop.<key>` | not set | Hadoop configuration override for the tables of this catalog, with the prefix removed. See [Per-table Hadoop options](#per-table-hadoop-options). |
 | `http-client.type` | SDK default resolution | `apache` or `urlconnection`: the HTTP client of the Glue and STS clients. Unset: inferred from the other `http-client.*` keys (see below). |
-| `http-client.proxy-endpoint` | not set | Proxy URL (apache client; also accepted for urlconnection). |
+| `http-client.proxy-endpoint` | not set | Proxy URL, for either client type. |
 | `http-client.proxy-use-system-property-values` | SDK default | Read the proxy from the JVM system properties. |
 | `http-client.proxy-use-environment-variable-values` | SDK default | Read the proxy from the environment variables. |
 | `http-client.urlconnection.socket-timeout-ms` | SDK default | Socket timeout of the urlconnection client. |
@@ -44,13 +44,14 @@ that names the database and the `glue.id`.
 `http-client.*` uses Iceberg's names and applies to the Glue client and the STS client of the catalog.
 
 - With no `http-client.*` key, the SDK picks its own HTTP client, as in 1.0.0.
-- `http-client.type` selects `apache` or `urlconnection`. Without it, `http-client.apache.*` or a proxy key implies
-  `apache` (Iceberg's default, so shared Iceberg settings take effect), and only `http-client.urlconnection.*` keys
-  imply `urlconnection`. Keys for both client types without a type are an error at `initialize`.
+- `http-client.type` selects `apache` or `urlconnection`. Without it, `http-client.apache.*` keys imply `apache`
+  (Iceberg's default, so shared Iceberg settings take effect) and `http-client.urlconnection.*` keys imply
+  `urlconnection`. The proxy keys apply to both types; on their own they imply `apache`. Keys under both
+  `http-client.apache.` and `http-client.urlconnection.` without a type are an error at `initialize`.
 - A key for the other client type than the selected one is ignored with a warning.
 - The clients are optional dependencies: add `software.amazon.awssdk:apache-client` or
   `software.amazon.awssdk:url-connection-client` (2.24.6) to the classpath. Selecting a type whose jar is missing
-  fails at `initialize` with a message naming the artifact.
+  fails at `initialize` with a message naming the artifact and the missing class.
 
 ## Per-table Hadoop options
 
@@ -73,9 +74,11 @@ further configuration (Iceberg's `AssumeRoleAwsClientFactory` does the same for 
 | `fs.s3a.assumed.role.credentials.provider` | the session's effective `fs.s3a.aws.credentials.provider` (your value, else Hadoop's default list), without any `AssumedRoleCredentialProvider` entry. Derived only when you did not set this key and the list is not empty |
 
 The last row is the credentials of S3A's own STS call. It is the identity chain S3A used before the role was
-derived: an instance profile, environment keys, a profile on a laptop, or web identity (IRSA) when the session names
-the web-identity provider. That provider is `com.amazonaws.auth.WebIdentityTokenCredentialsProvider` on Spark 3.5
-(SDK v1) and `software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider` on Spark 4.x (SDK v2).
+derived. Hadoop's default list covers S3A's own keys, environment keys and the instance or container role; it has no
+profile provider, so a profile (on a laptop, say) works only when the session names a provider that reads it. Web
+identity (IRSA) also needs the session to name the web-identity provider:
+`com.amazonaws.auth.WebIdentityTokenCredentialsProvider` on Spark 3.5 (SDK v1) and
+`software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider` on Spark 4.x (SDK v2).
 S3A does not use the SDK default chain that gluecat's Glue client uses. gluecat reads the session's S3A settings once,
 at `initialize`.
 
@@ -110,19 +113,31 @@ and still honours explicit `hadoop.*` keys.
 
 Hadoop caches `FileSystem` instances by scheme, bucket and user, not by configuration. The first access to a bucket
 in a JVM fixes its credentials and endpoint for every later access, in the driver and in each executor. gluecat
-opens a table's location with the catalog's configuration before its own Delta operations and relies on the cache
-being enabled (Hadoop's default). The rule that follows: reach a bucket one way only, through one catalog's role or
+opens a table's location with the catalog's configuration in the driver before its own Delta operations and relies on
+the cache being enabled (Hadoop's default); executor-side Delta work for those operations is not covered (see
+[Limitations](limitations.md)). The rule that follows: reach a bucket one way only, through one catalog's role or
 through the session configuration, never both. Two catalogs with different roles on the same bucket share the first
 instance.
 
 Direct path access (`` delta.`s3://...` ``, `spark.read.parquet`) never reaches a catalog: it uses whatever the cache
-already holds for that bucket, else the session configuration. See [How it works](how-it-works.md#per-catalog-hadoop-configuration).
+already holds for that bucket, else the session configuration. See
+[How it works](how-it-works.md#per-catalog-hadoop-configuration).
+
+Streaming does not get the catalog's options either: `writeStream.toTable` on a Delta table by name (and, on Delta
+3.3, `readStream.table`) starts the sink with the provider and location only, and Delta builds its log without
+storage properties, so the session configuration is used. With `client.assume-role.arn`, the streaming job reaches
+the bucket with the session identity while batch work uses the role, which breaks the rule inside one catalog. For
+the buckets that streaming writes, set per-bucket session keys (`fs.s3a.bucket.<name>.*`), or write with
+`foreachBatch` and batch writes by name.
 
 ### What is visible
 
-gluecat writes none of these options to Glue or to the Delta log. Spark and Delta 3.3 and 4.0 show storage properties
-as `option.<key>` in `SHOW TBLPROPERTIES` and `DESCRIBE EXTENDED` of the session that loaded the table (Delta 4.3 and
-later hide `fs.*`). Prefer roles over static keys under `hadoop.*`: a static secret would show up there.
+gluecat writes none of these options to Glue or to the Delta log. Spark (for non-Delta tables) and Delta before 4.3
+show storage properties as `option.<key>` in `SHOW TBLPROPERTIES`, `DESCRIBE EXTENDED` and `SHOW CREATE TABLE` of
+the session that loaded the table (Delta 4.3 and later hide `fs.*`). Running such a `SHOW CREATE TABLE` output again
+stores those keys in the Glue entry (non-Delta) or the Delta log (Delta), where they then override the catalog's
+values; remove the `fs.s3a.*` options first. Prefer roles over static keys under `hadoop.*`: a static secret would
+show up there.
 
 ## Credentials
 
@@ -149,8 +164,9 @@ also works without a role if that account's Glue resource policy allows the call
 
 gluecat is built and tested against SDK 2.24.6, the `bundle` version that `hadoop-aws` 3.4.1 depends on (Hadoop 3.4.1
 is the oldest Hadoop that a supported Spark 4.x line bundles). `glue` and `sts` are `provided` dependencies, as in
-Iceberg's `iceberg-aws`; `apache-client` and `url-connection-client` are optional ones. Newer 2.x versions on the classpath are expected to work, since the SDK keeps backward
-compatibility within 2.x, but CI does not test them; older versions are not supported.
+Iceberg's `iceberg-aws`; `apache-client` and `url-connection-client` are optional ones. Newer 2.x versions on the
+classpath are expected to work, since the SDK keeps backward compatibility within 2.x, but CI does not test them;
+older versions are not supported.
 
 gluecat sets the standard retry mode (3 attempts), which overrides `AWS_RETRY_MODE` (the SDK's own default is the
 legacy mode), and otherwise keeps the SDK defaults: no API call timeout, and the SDK's default HTTP client
