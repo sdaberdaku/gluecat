@@ -19,7 +19,8 @@ import io.github.sdaberdaku.gluecat.glue._
 /** Glue-backed catalog core. Names are lowercased in both directions. Glue databases carry no VersionId, so
   * concurrent `alterNamespace` calls are last-writer-wins. */
 class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatalogOptions,
-    schemaThreshold: () => Int) extends TableCatalog with SupportsNamespaces {
+    schemaThreshold: () => Int, hadoopOptions: TableHadoopOptions = TableHadoopOptions(Map.empty))
+    extends TableCatalog with SupportsNamespaces {
 
   override def name(): String = catalogName
   // The core is constructed by its owner, never initialised by Spark.
@@ -140,7 +141,7 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
   override def loadTable(ident: Identifier): Table = {
     val table = EntryConverter.toCatalogTable(catalogName, loadEntry(ident).getOrElse(throw missing(normalize(ident))))
     if (!isDelta(table.provider.get)) GlueCoreCatalog.requireStatsAutoUpdateOff()
-    V1TableBridge.wrap(table)
+    V1TableBridge.wrap(hadoopOptions(table))
   }
 
   private def isDelta(provider: String) = provider.equalsIgnoreCase("delta")

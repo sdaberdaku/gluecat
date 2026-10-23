@@ -21,7 +21,7 @@ import io.github.sdaberdaku.gluecat.glue.{GlueAlreadyExists, GlueTableEntry}
   * replaces never pass a catalog identifier to Delta (it would register them in `spark_catalog`): they run on
   * the path identifier ``delta.`<location>` ``, then the Glue entry is written. */
 class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: GlueCatalogOptions,
-    sparkOptions: CaseInsensitiveStringMap) extends FormatSupport {
+    sparkOptions: CaseInsensitiveStringMap, hadoopOptions: TableHadoopOptions) extends FormatSupport {
 
   // Only Spark types here: DeltaCatalog's class differs between Delta 3.3 and 4.x.
   private val delta: DelegatingCatalogExtension = {
@@ -34,6 +34,10 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
   private def staging = delta.asInstanceOf[StagingTableCatalog]
 
   def pathIdentifier(location: String): Identifier = Identifier.of(Array("delta"), location)
+
+  // Every by-path call on a catalog's table: the location's FileSystem is opened with the catalog's options first.
+  private def atPath(location: String): Identifier = { hadoopOptions.prime(location); pathIdentifier(location) }
+
   def isDelta(provider: String): Boolean = provider.equalsIgnoreCase("delta")
   private def isDeltaEntry(entry: GlueTableEntry): Boolean = entry.parameters.get("spark.sql.sources.provider").exists(isDelta)
 
@@ -138,15 +142,15 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
     if (!isDelta(spec.provider)) return core.createTable(ident, schema, partitions, properties)
     requireSqlOnFiles()
     val location = prepareCreate(ident, spec)
-    val pathTable = delta.createTable(pathIdentifier(location), schema, partitions, deltaProps(properties))
+    val pathTable = delta.createTable(atPath(location), schema, partitions, deltaProps(properties))
     writeGlue(ident, location, spec, replace = false)(pathTable)
     loadTable(ident)
   }
 
   private def staged(ident: Identifier, location: String, spec: TableSpec, replace: Boolean)
       (stage: Identifier => StagedTable): StagedTable =
-    new StagedGlueTable(stage(pathIdentifier(location)),
-      () => writeGlue(ident, location, spec, replace)(delta.loadTable(pathIdentifier(location))))
+    new StagedGlueTable(stage(atPath(location)), hadoopOptions,
+      () => writeGlue(ident, location, spec, replace)(delta.loadTable(atPath(location))))
 
   override def stageCreate(ident: Identifier, schema: StructType, partitions: Array[Transform],
       properties: java.util.Map[String, String]): StagedTable = {
@@ -192,10 +196,10 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
     if (location.nonEmpty) {
       val target = location.head.asInstanceOf[TableChange.SetProperty].value
       val dir = new Path(target)
-      if (!dir.getFileSystem(SparkSession.active.sessionState.newHadoopConf()).exists(new Path(dir, "_delta_log"))) {
+      if (!hadoopOptions.fileSystem(target).exists(new Path(dir, "_delta_log"))) {
         throw new IllegalArgumentException(s"${qualified(ident)}: $target holds no Delta table (no _delta_log directory)")
       }
-      val moved = delta.loadTable(pathIdentifier(target))
+      val moved = delta.loadTable(atPath(target))
       val current = EntryConverter.toCatalogTable(catalogName, entry)
       core.replaceTable(ident, current.copy(
         storage = current.storage.copy(locationUri = Some(CatalogUtils.stringToURI(target))),
@@ -261,15 +265,17 @@ object DeltaFormatSupport {
     try { deltaCatalogClass(); true } catch { case _: ClassNotFoundException => false }
 }
 
-/** Delta's staged table for the path, plus the Glue write once Delta has committed. Abort leaves Glue untouched. */
-private final class StagedGlueTable(staged: StagedTable, afterCommit: () => Unit) extends StagedTable with SupportsWrite {
+/** Delta's staged table for the path, plus the Glue write once Delta has committed. Abort leaves Glue untouched. The
+  * write carries the catalog's Hadoop options as write options, which Delta uses and does not persist. */
+private final class StagedGlueTable(staged: StagedTable, hadoopOptions: TableHadoopOptions, afterCommit: () => Unit)
+    extends StagedTable with SupportsWrite {
   override def name(): String = staged.name()
   override def schema(): StructType = staged.schema()
   override def partitioning(): Array[Transform] = staged.partitioning()
   override def properties(): java.util.Map[String, String] = staged.properties()
   override def capabilities(): java.util.Set[TableCapability] = staged.capabilities()
   override def newWriteBuilder(info: LogicalWriteInfo): WriteBuilder =
-    staged.asInstanceOf[SupportsWrite].newWriteBuilder(info)
+    staged.asInstanceOf[SupportsWrite].newWriteBuilder(hadoopOptions.writeOptions(info))
   override def commitStagedChanges(): Unit = { staged.commitStagedChanges(); afterCommit() }
   override def abortStagedChanges(): Unit = staged.abortStagedChanges()
 }

@@ -9,18 +9,21 @@ import org.apache.spark.sql.connector.catalog._
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
+import org.slf4j.LoggerFactory
 
-import io.github.sdaberdaku.gluecat.catalog.{DefaultNamespaceNotFoundException, GlueCoreCatalog}
+import io.github.sdaberdaku.gluecat.catalog.{DefaultNamespaceNotFoundException, GlueCoreCatalog, TableHadoopOptions}
 import io.github.sdaberdaku.gluecat.format.{DeltaFormatSupport, FormatSupport, PassThroughFormatSupport}
 import io.github.sdaberdaku.gluecat.glue.{GlueApi, SdkGlueApi}
 
 /** The catalog plugin users configure. Routes every call to the core catalog or to the format support.
   * Never a CatalogExtension, so it also works as `spark_catalog` (see the design). */
 class GlueCatalog extends TableCatalog with StagingTableCatalog with SupportsNamespaces {
+  private val log = LoggerFactory.getLogger(getClass)
   private var catalogName: String = _
   private var glueOptions: GlueCatalogOptions = _
   // Kept for format supports that initialise a catalog of their own (Delta).
   private var sparkOptions: CaseInsensitiveStringMap = _
+  private var hadoopOptions: TableHadoopOptions = _
   private var core: GlueCoreCatalog = _
   private var format: FormatSupport = _
 
@@ -34,8 +37,14 @@ class GlueCatalog extends TableCatalog with StagingTableCatalog with SupportsNam
       SparkVersionCheck.requireSupported(SPARK_VERSION)
       glueOptions = GlueCatalogOptions.parse(name, options.asCaseSensitiveMap)
       DeltaFormatSupport.requireUpdateCatalogHookOff()
+      hadoopOptions = TableHadoopOptions(S3RoleDefaults.effective(glueOptions,
+        S3RoleDefaults.userSet(SparkSession.active.sessionState.newHadoopConf())))
+      // Keys only: values may hold credentials.
+      val keys = hadoopOptions.values.keys.toSeq.sorted
+      if (keys.nonEmpty) log.info(s"gluecat catalog '$name': per-table Hadoop options: ${keys.mkString(", ")}")
       core = new GlueCoreCatalog(name, newGlueApi(glueOptions), glueOptions,
-        () => SparkSession.active.conf.get("spark.sql.sources.schemaStringLengthThreshold", "4000").toInt)
+        () => SparkSession.active.conf.get("spark.sql.sources.schemaStringLengthThreshold", "4000").toInt,
+        hadoopOptions)
       format = newFormatSupport(core, glueOptions)
     } catch {
       case NonFatal(e) => throw new IllegalArgumentException(s"gluecat catalog '$name': ${e.getMessage}", e)
@@ -45,7 +54,7 @@ class GlueCatalog extends TableCatalog with StagingTableCatalog with SupportsNam
   protected def newGlueApi(options: GlueCatalogOptions): GlueApi = SdkGlueApi(options)
 
   protected def newFormatSupport(core: GlueCoreCatalog, options: GlueCatalogOptions): FormatSupport =
-    if (DeltaFormatSupport.available) new DeltaFormatSupport(core, catalogName, options, sparkOptions)
+    if (DeltaFormatSupport.available) new DeltaFormatSupport(core, catalogName, options, sparkOptions, hadoopOptions)
     else new PassThroughFormatSupport(core)
 
   // ---- SupportsNamespaces ----

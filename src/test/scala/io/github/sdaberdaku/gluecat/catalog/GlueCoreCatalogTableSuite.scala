@@ -17,9 +17,10 @@ import io.github.sdaberdaku.gluecat.glue._
 class GlueCoreCatalogTableSuite extends AnyFunSuite {
   private def opts(extra: (String, String)*) =
     GlueCatalogOptions.parse("acct_a", (Map("glue.id" -> "111111111111") ++ extra).asJava)
-  private def fixture(extra: (String, String)*) = {
+  private def fixture(extra: (String, String)*) = fixtureWith(TableHadoopOptions(Map.empty), extra: _*)
+  private def fixtureWith(hadoop: TableHadoopOptions, extra: (String, String)*) = {
     val glue = new InMemoryGlueApi
-    val c = new GlueCoreCatalog("acct_a", glue, opts(extra: _*), () => 4000)
+    val c = new GlueCoreCatalog("acct_a", glue, opts(extra: _*), () => 4000, hadoop)
     c.createNamespace(Array("db"), Map("location" -> "s3://bucket-a/db/").asJava)
     (c, glue)
   }
@@ -276,5 +277,35 @@ class GlueCoreCatalogTableSuite extends AnyFunSuite {
     assert(c.tableExists(id("t2")) && !c.tableExists(id("t")))
     create(c, "u")
     intercept[UnsupportedOperationException](c.renameTable(id("u"), Identifier.of(Array("acct_b", "db"), "u2")))
+  }
+
+  private val injected = TableHadoopOptions(Map("fs.s3a.endpoint" -> "http://a"))
+
+  test("loaded tables carry the catalog's Hadoop options; the Glue entry does not") {
+    val (c, glue) = fixtureWith(injected)
+    create(c)
+    assert(v1(c).storage.properties("fs.s3a.endpoint") == "http://a")
+    assert(!glue.getTable("db", "t").get.storage.serdeParameters.contains("fs.s3a.endpoint"))
+  }
+
+  test("a user OPTIONS value wins over the injected one on load and is the one persisted") {
+    val (c, glue) = fixtureWith(injected)
+    c.createTable(id("u"), schema, noParts,
+      props("provider" -> "parquet", "location" -> "s3://bucket-a/u", "option.fs.s3a.endpoint" -> "http://user"))
+    assert(v1(c, "u").storage.properties("fs.s3a.endpoint") == "http://user")
+    assert(glue.getTable("db", "u").get.storage.serdeParameters("fs.s3a.endpoint") == "http://user")
+  }
+
+  test("the Glue entry of a table is byte-identical with and without hadoop options") {
+    def entry(hadoop: TableHadoopOptions) = {
+      val (c, glue) = fixtureWith(hadoop)
+      c.createTable(id("t"), schema, noParts,
+        props("provider" -> "parquet", "location" -> "s3://bucket-a/t", "option.compression" -> "zstd", "k" -> "v"))
+      c.alterTable(id("t"), TableChange.setProperty("k2", "v2"), TableChange.addColumn(Array("x"), StringType))
+      glue.getTable("db", "t").get.copy(versionId = None)
+    }
+    val plain = entry(TableHadoopOptions(Map.empty))
+    assert(entry(injected) == plain)
+    assert(plain.storage.serdeParameters.get("compression").contains("zstd"))
   }
 }
