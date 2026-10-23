@@ -6,6 +6,12 @@
 
 AWS Glue Data Catalog client for Apache Spark.
 
+[![CI](https://github.com/sdaberdaku/gluecat/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sdaberdaku/gluecat/actions/workflows/ci.yml)
+[![Docs](https://github.com/sdaberdaku/gluecat/actions/workflows/pages.yml/badge.svg?branch=main)](https://sdaberdaku.github.io/gluecat/)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.sdaberdaku/gluecat-spark-4.1_2.13?label=Maven%20Central)](https://central.sonatype.com/search?q=io.github.sdaberdaku.gluecat)
+[![Release](https://img.shields.io/github/v/release/sdaberdaku/gluecat?display_name=tag)](https://github.com/sdaberdaku/gluecat/releases)
+[![License](https://img.shields.io/github/license/sdaberdaku/gluecat)](LICENSE)
+
 Documentation: <https://sdaberdaku.github.io/gluecat/>
 
 gluecat is a Spark catalog plugin, `io.github.sdaberdaku.gluecat.GlueCatalog`. Each Spark catalog configured with it
