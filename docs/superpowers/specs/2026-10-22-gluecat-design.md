@@ -138,7 +138,9 @@ catalog can be configured while Glue is unreachable.
   user's provider unchecked.
 - gluecat sets the standard retry mode (3 attempts), which overrides `AWS_RETRY_MODE` (the SDK's own default is
   legacy), and otherwise keeps the AWS SDK v2 defaults for timeouts and assume-role credential refresh (the STS
-  provider refreshes before expiry in the background). The README lists the concrete
+  provider refreshes on the calling thread in the prefetch window before expiry; no asynchronous refresh, because
+  Spark never closes catalog plugins and a background refresher would keep every abandoned session's provider and
+  STS client alive). The README lists the concrete
   values for the SDK version gluecat is built against. STS failures name the catalog and the role ARN.
 - `initialize` fails with a clear error on Spark versions below the supported floor (3.5.3 on the 3.5
   line) instead of failing later on the first non-Delta read.

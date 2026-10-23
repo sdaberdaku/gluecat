@@ -28,8 +28,9 @@ that names the database and the `glue.id`.
 In order of precedence:
 
 1. `client.credentials-provider`: your provider class.
-2. `client.assume-role.arn`: an STS assume-role provider that refreshes the session in the background before it
-   expires. Its base credentials come from the SDK default chain.
+2. `client.assume-role.arn`: an STS assume-role provider. Its base credentials come from the SDK default chain. The
+   SDK refreshes the session on the thread of the first Glue call in the 5 minutes before it expires; there is no
+   background refresh thread.
 3. The SDK default credentials chain, including web identity (IRSA on EKS).
 
 Each catalog builds its own default chain and resolves it at its first Glue call. A `glue.id` of another account
@@ -51,4 +52,6 @@ compatibility within 2.x, but CI does not test them; older versions are not supp
 
 gluecat sets the standard retry mode (3 attempts), which overrides `AWS_RETRY_MODE` (the SDK's own default is the
 legacy mode), and otherwise keeps the SDK defaults: no API call timeout, the SDK's default HTTP client resolution.
-Assume-role sessions last `client.assume-role.timeout-sec` (3600 s by default) and refresh asynchronously.
+Assume-role sessions last `client.assume-role.timeout-sec` (3600 s by default) and refresh on the calling thread.
+Spark never closes catalog plugins and creates new ones for new sessions (`newSession`, Spark Connect and Thrift
+server sessions, each streaming query), so gluecat starts no background refresh that would outlive them.

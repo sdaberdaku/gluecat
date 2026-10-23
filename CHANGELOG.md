@@ -18,4 +18,5 @@ First release.
 - Every Glue `UpdateTable` passes the `VersionId` it read; a concurrent change fails with a retryable error.
 - The catalog refuses to run while Delta's `UpdateCatalog` hook is enabled, because the hook writes through
   `spark_catalog`.
-- AWS SDK for Java v2 (`glue`, `sts`) as a `provided` dependency, built and tested against 2.24.6.
+- AWS SDK for Java v2 (`glue`, `sts`) as a `provided` dependency, built and tested against 2.24.6. Assume-role
+  sessions refresh on the calling thread: Spark never closes catalog plugins, so no background refresh is started.

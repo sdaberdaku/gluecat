@@ -67,7 +67,9 @@ object GlueClients {
     val req = AssumeRoleRequest.builder().roleArn(arn).roleSessionName(options.assumeRoleSessionName)
       .durationSeconds(options.assumeRoleTimeoutSec)
     options.assumeRoleExternalId.foreach(req.externalId)
-    StsAssumeRoleCredentialsProvider.builder().stsClient(sts.build()).refreshRequest(req.build())
-      .asyncCredentialUpdateEnabled(true).build()
+    // No asyncCredentialUpdateEnabled: Spark never closes catalog plugins, and the SDK's background refresher keeps
+    // the provider and its StsClient reachable, so every abandoned session would keep an AssumeRole loop running.
+    // The default refreshes on the calling thread within the 5-minute prefetch window.
+    StsAssumeRoleCredentialsProvider.builder().stsClient(sts.build()).refreshRequest(req.build()).build()
   }
 }
