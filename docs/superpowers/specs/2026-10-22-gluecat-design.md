@@ -454,7 +454,10 @@ When reading, accept at least these variants:
 - non-Delta data source tables written by Spark's Hive path, in both of its forms.
 
 Map the internal `spark.sql.*` keys back into `CatalogTable` fields the way `HiveExternalCatalog`
-restores them, and keep them out of the user-visible properties.
+restores them, and keep them out of the user-visible properties. That includes its `reorderSchema`: a non-Delta
+table's partition columns move to the end of the schema in `partCol` order, because Spark's V1 relation is the data
+columns followed by the partition columns; a partition column missing from the schema is a malformed entry. Delta
+entries keep the stored order.
 
 The entry format is public API from 1.0.0. Rules that are part of it:
 
@@ -468,8 +471,8 @@ The entry format is public API from 1.0.0. Rules that are part of it:
   default 4000 characters), numbered from 0, and read in order; a missing part is a load error naming
   the table.
 - Names follow "Identifiers and listing" (lowercase).
-- Malformed entries (bad schema JSON, missing location, a part count that does not match) fail on load
-  with an error that names the table and the problem.
+- Malformed entries (bad schema JSON, missing location, a part count that does not match, a non-Delta
+  partition column missing from the schema) fail on load with an error that names the table and the problem.
 
 ### Delta's UpdateCatalog hook
 

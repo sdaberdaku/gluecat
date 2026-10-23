@@ -49,6 +49,8 @@ object EntryConverter {
     val provider = params.getOrElse(Provider,
       throw unsupported(s"not a Spark data source table (missing $Provider)"))
     val uri = location(entry).getOrElse(throw malformed("no table location (SerDe path or storage location)"))
+    val partCols = partitionColumns(params, malformed)
+    val stored = schema(params, malformed)
 
     CatalogTable(
       identifier = TableIdentifier(entry.name, Some(entry.database), Some(catalogName)),
@@ -57,9 +59,10 @@ object EntryConverter {
       storage = CatalogStorageFormat(Some(CatalogUtils.stringToURI(uri)), entry.storage.inputFormat, entry.storage.outputFormat,
         entry.storage.serdeLibrary, compressed = false,
         entry.storage.serdeParameters - "path" - "serialization.format"),
-      schema = schema(params, malformed),
+      // Delta entries keep the stored order: the Delta log is the source, and syncSchema compares Delta's own order.
+      schema = if (provider.equalsIgnoreCase("delta")) stored else partitionColumnsLast(stored, partCols, malformed),
       provider = Some(provider),
-      partitionColumnNames = partitionColumns(params, malformed),
+      partitionColumnNames = partCols,
       comment = entry.description,
       owner = entry.owner.getOrElse(""),
       createVersion = params.getOrElse("spark.sql.create.version", ""),
@@ -77,6 +80,15 @@ object EntryConverter {
       try DataType.fromJson(j).asInstanceOf[StructType]
       catch { case NonFatal(e) => throw malformed(s"cannot parse the stored schema: ${e.getMessage}") }
     }.getOrElse(new StructType())
+  }
+
+  /** Spark's V1 relation is the data columns followed by the partition columns, so the schema has to be in that order,
+    * as HiveExternalCatalog.reorderSchema restores it on read. */
+  private def partitionColumnsLast(schema: StructType, partCols: Seq[String],
+      malformed: String => Exception): StructType = {
+    val parts = partCols.map(c => schema.find(_.name == c)
+      .getOrElse(throw malformed(s"partition column $c is not in the stored schema")))
+    StructType(schema.filterNot(parts.contains) ++ parts)
   }
 
   private def partitionColumns(params: Map[String, String], malformed: String => Exception): Seq[String] =

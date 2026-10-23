@@ -64,6 +64,31 @@ abstract class ParquetTableIT(mode: Mode) extends SparkIT(mode) {
     assert(columns.take(2).toSeq == Seq("id" -> "int", "name" -> "string"))
   }
 
+  private def described(t: String): Seq[String] =
+    spark.sql(s"DESCRIBE TABLE ${tbl("db", t)}").collect().map(_.getString(0))
+      .takeWhile(c => c.nonEmpty && !c.startsWith("#")).toSeq
+  private def selected(t: String): Seq[String] = spark.table(tbl("db", t)).columns.toSeq
+
+  // Spark's V1 relation is the data columns followed by the partition columns, so the catalog returns that order, as
+  // HiveExternalCatalog does; otherwise DESCRIBE and positional INSERTs disagree with SELECT *.
+  test("partition columns come last in DESCRIBE and SELECT *, and a positional INSERT fills the right columns") {
+    spark.sql(s"CREATE TABLE ${tbl("db", "p_order")} (p STRING, id INT) USING parquet PARTITIONED BY (p) " +
+      s"LOCATION '${tempDir()}'")
+    assert(described("p_order") == Seq("id", "p"))
+    assert(selected("p_order") == Seq("id", "p"))
+    spark.sql(s"INSERT INTO ${tbl("db", "p_order")} VALUES (1, 'a')")
+    val row = spark.sql(s"SELECT id, p FROM ${tbl("db", "p_order")}").head()
+    assert(row.getInt(0) == 1 && row.getString(1) == "a")
+  }
+
+  test("ADD COLUMNS on a partitioned parquet table keeps the partition column last") {
+    spark.sql(s"CREATE TABLE ${tbl("db", "p_add")} (id INT, p STRING) USING parquet PARTITIONED BY (p) " +
+      s"LOCATION '${tempDir()}'")
+    spark.sql(s"ALTER TABLE ${tbl("db", "p_add")} ADD COLUMNS (x STRING)")
+    assert(described("p_add") == Seq("id", "x", "p"))
+    assert(selected("p_add") == Seq("id", "x", "p"))
+  }
+
   test("SHOW TABLES lists the table") {
     createParquet("p_show")
     assert(tableNames("db").contains("p_show"))

@@ -41,7 +41,11 @@ convention.
 - Unknown parameters (written by other tools, for example `trino_*` or `delta.*` keys) are preserved on every update:
   an `UpdateTable` starts from the entry as read and changes only the keys the operation owns.
 - A missing schema part is a load error that names the table. Malformed entries (bad schema JSON, missing location,
-  a part count that does not match) fail on load with an error that names the table and the problem.
+  a part count that does not match, a partition column that is not in a non-Delta table's schema) fail on load with an
+  error that names the table and the problem.
+- Non-Delta tables load with their partition columns last, in `partCol` order, as `HiveExternalCatalog` restores
+  them (Spark reads and writes them as data columns followed by partition columns). Delta tables keep the stored
+  order.
 - Names are lowercase.
 
 ## Read variants

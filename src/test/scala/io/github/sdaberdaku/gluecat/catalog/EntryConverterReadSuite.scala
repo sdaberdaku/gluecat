@@ -48,6 +48,30 @@ class EntryConverterReadSuite extends AnyFunSuite {
     assert(!t.storage.properties.contains("path") && !t.storage.properties.contains("serialization.format"))
   }
 
+  private def withSchema(name: String, schema: StructType, partCol: String) = {
+    val e = Fixtures.table(name)
+    e.copy(parameters = e.parameters ++ Map("spark.sql.sources.schema" -> schema.json,
+      "spark.sql.sources.schema.numPartCols" -> "1", "spark.sql.sources.schema.partCol.0" -> partCol))
+  }
+  private val dtFirst = new StructType().add("dt", "string").add("id", "long").add("name", "string")
+
+  test("non-Delta: partition columns are moved to the end, in partCol order") {
+    val t = EntryConverter.toCatalogTable("acct_a", withSchema("parquet-hive-compatible", dtFirst, "dt"))
+    assert(t.schema.fieldNames.toSeq == Seq("id", "name", "dt"))
+    assert(t.partitionSchema.fieldNames.toSeq == Seq("dt"))
+  }
+
+  test("non-Delta: a partition column missing from the schema is a malformed entry naming table and column") {
+    val e = intercept[MalformedEntryException](
+      EntryConverter.toCatalogTable("acct_a", withSchema("parquet-hive-compatible", dtFirst, "region")))
+    assert(e.getMessage.contains("acct_a.db.t") && e.getMessage.contains("region"))
+  }
+
+  test("Delta: the stored column order is kept") {
+    val t = EntryConverter.toCatalogTable("acct_a", withSchema("delta-rewritten", dtFirst, "dt"))
+    assert(t.schema.fieldNames.toSeq == Seq("dt", "id", "name"))
+  }
+
   test("json-spark-specific: location from path, schema from the parameter") {
     val t = convert("json-spark-specific")
     assert(t.storage.locationUri.contains(new URI("s3://bucket-a/json/t")))
