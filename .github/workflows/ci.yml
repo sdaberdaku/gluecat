@@ -1,10 +1,11 @@
 name: CI
 
 # Pull requests that are ready for review run the full matrix, the compatibility suites and the docs build; `ci-ok`
-# is the required status check of the `main` branch protection, so a merge needs every row green. Draft pull requests
-# run nothing (mark the PR ready for review to start the run; later pushes re-run it). Pushes to `main` run nothing
-# here: the merged tree is the one the pull request tested (branches must be up to date), `pages.yml` publishes the
-# site and `release.yml` runs the matrix again on the tag before publishing.
+# is the required status check of the `main` branch protection, so a merge needs every row green. On a draft pull
+# request nothing runs and `ci-ok` is red (its needs are skipped); marking the PR ready for review starts the run, and
+# later pushes re-run it. Pushes to `main` run nothing here: the merged tree is the one the pull request tested
+# (branches must be up to date), `pages.yml` publishes the site and `release.yml` runs the matrix again on the tag
+# before publishing.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -86,6 +87,7 @@ jobs:
 
   # A broken link or nav entry fails the pull request; the site is deployed by pages.yml.
   docs:
+    needs: plan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -99,10 +101,11 @@ jobs:
       - run: mkdocs build --strict
 
   # One status check for branch protection: green only when every matrix row, the compatibility suites and the docs
-  # build succeeded (a skipped or cancelled job is a failure here).
+  # build succeeded. It always runs: a skipped required check counts as passing, so on a draft (every need skipped) it
+  # must run and fail; a skipped or cancelled need is a failure here.
   ci-ok:
     needs: [test, compat, docs]
-    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - run: |

@@ -216,8 +216,9 @@ abstract class DeltaCreateIT(mode: Mode) extends SparkIT(mode) {
     dir.listFiles().filter(_.getName.endsWith(".json")).sortBy(_.getName)
       .map(f => new String(java.nio.file.Files.readAllBytes(f.toPath), "UTF-8")).mkString("\n")
   }
-  private val Injected = Seq("fs.s3a.endpoint", "fs.s3a.assumed.role.arn", "127.0.0.1:1", "role/data-a")
-  // Delta 3.3 and 4.0 show a loaded table's storage properties as option.<key>; 4.3 and later hide fs.* keys.
+  // Every key the catalog sets or derives (the S3A role defaults included), and the values of acct_h's own keys.
+  private val Injected = Seq("fs.s3a.", "AssumedRoleCredentialProvider", "127.0.0.1:1", "role/data-a")
+  // Delta before 4.3 shows a loaded table's storage properties as option.<key>; 4.3 and later hide fs.* keys.
   private val deltaHidesFsOptions = {
     val Array(major, minor) = io.delta.VERSION.split("\\.").take(2).map(_.takeWhile(_.isDigit).toInt)
     major > 4 || major == 4 && minor >= 3

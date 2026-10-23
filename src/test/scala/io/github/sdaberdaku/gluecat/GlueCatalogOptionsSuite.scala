@@ -93,6 +93,13 @@ class GlueCatalogOptionsSuite extends AnyFunSuite {
     assert(parse().httpClient.effectiveType.isEmpty)
   }
 
+  test("proxy keys go with either client type") {
+    val o = parse("http-client.proxy-endpoint" -> "http://p:1", "http-client.urlconnection.socket-timeout-ms" -> "1000")
+    assert(o.httpClient.effectiveType.contains("urlconnection"))
+    assert(parse("http-client.proxy-endpoint" -> "http://p:1", "http-client.apache.max-connections" -> "5")
+      .httpClient.effectiveType.contains("apache"))
+  }
+
   test("http-client errors") {
     assert(intercept[IllegalArgumentException](parse("http-client.type" -> "netty")).getMessage.contains("'apache' or 'urlconnection'"))
     assert(intercept[IllegalArgumentException](parse("http-client.apache.max-connections" -> "1",

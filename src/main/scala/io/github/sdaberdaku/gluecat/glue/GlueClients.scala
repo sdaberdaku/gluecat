@@ -36,7 +36,8 @@ object GlueClients {
   }
 
   /** The SDK default client when no http-client.* key is set. The SDK does not close a client it is handed and gluecat
-    * never closes catalogs, so there is nothing to release. */
+    * never closes catalogs, so the client and its pools are never released; an apache client's pools stay registered
+    * with the SDK's idle connection reaper, as with the SDK default client. */
   def httpClient(options: GlueCatalogOptions): Option[SdkHttpClient] = {
     val h = options.httpClient
     h.effectiveType.map { t =>
@@ -60,7 +61,7 @@ object GlueClients {
           h.apacheMaxConnections.foreach(v => b.maxConnections(v))
           h.apacheTcpKeepAliveEnabled.foreach(v => b.tcpKeepAlive(v))
           h.apacheUseIdleConnectionReaperEnabled.foreach(v => b.useIdleConnectionReaper(v))
-          if (Seq(h.proxyEndpoint, h.proxyUseSystemPropertyValues, h.proxyUseEnvironmentVariableValues).exists(_.isDefined)) {
+          if (h.hasProxyKeys) {
             val p = ApacheProxy.builder()
             h.proxyEndpoint.foreach(e => p.endpoint(URI.create(e)))
             h.proxyUseSystemPropertyValues.foreach(v => p.useSystemPropertyValues(v))
@@ -82,7 +83,7 @@ object GlueClients {
           val b = UrlConnectionHttpClient.builder()
           ms(h.urlConnectionSocketTimeoutMs).foreach(b.socketTimeout)
           ms(h.urlConnectionConnectionTimeoutMs).foreach(b.connectionTimeout)
-          if (Seq(h.proxyEndpoint, h.proxyUseSystemPropertyValues, h.proxyUseEnvironmentVariableValues).exists(_.isDefined)) {
+          if (h.hasProxyKeys) {
             val p = UrlConnectionProxy.builder()
             h.proxyEndpoint.foreach(e => p.endpoint(URI.create(e)))
             h.proxyUseSystemPropertyValues.foreach(v => p.useSystemPropertyValues(v))
@@ -93,10 +94,11 @@ object GlueClients {
           b.build()
       } catch {
         // The SDK HTTP clients are optional dependencies: the missing jar surfaces here as a linkage error.
-        case _: NoClassDefFoundError | _: ClassNotFoundException =>
+        case e @ (_: NoClassDefFoundError | _: ClassNotFoundException) =>
           val artifact = if (t == "apache") "apache-client" else "url-connection-client"
+          val missing = String.valueOf(e.getMessage).replace('/', '.')
           throw new IllegalArgumentException(
-            s"http-client.type '$t' needs software.amazon.awssdk:$artifact on the classpath")
+            s"http-client.type '$t' needs software.amazon.awssdk:$artifact on the classpath (missing class $missing)", e)
       }
     }
   }
