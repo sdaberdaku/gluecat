@@ -2,6 +2,7 @@ package io.github.sdaberdaku.gluecat
 
 import scala.collection.JavaConverters._
 
+import org.apache.hadoop.conf.Configuration
 import org.junit.runner.RunWith
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatestplus.junit.JUnitRunner
@@ -63,5 +64,28 @@ class S3RoleDefaultsSuite extends AnyFunSuite {
     val e = S3RoleDefaults.effective(o, noSession)
     assert(e("fs.s3a.aws.credentials.provider") == "com.example.Base")
     assert(e("fs.s3a.assumed.role.arn") == Arn)
+  }
+
+  private val BaseKey = "fs.s3a.assumed.role.credentials.provider"
+  private val MainKey = "fs.s3a.aws.credentials.provider"
+
+  test("userSet ignores Hadoop's built-in defaults") {
+    val conf = new Configuration()
+    assert(conf.get(BaseKey) != null)
+    assert(S3RoleDefaults.userSet(conf)(BaseKey).isEmpty)
+    assert(S3RoleDefaults.userSet(conf)(MainKey).isEmpty)
+  }
+
+  test("userSet sees values the user set") {
+    val conf = new Configuration()
+    conf.set(MainKey, "X")
+    assert(S3RoleDefaults.userSet(conf)(MainKey).contains("X"))
+  }
+
+  test("the base provider is derived on a session with Hadoop defaults when the user set only the main provider") {
+    val conf = new Configuration()
+    val web = "software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider"
+    conf.set(MainKey, web)
+    assert(S3RoleDefaults.derive(role, S3RoleDefaults.userSet(conf))(BaseKey) == web)
   }
 }

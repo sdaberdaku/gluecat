@@ -22,6 +22,12 @@ object S3RoleDefaults {
       case _ => Map.empty
     }
 
+  /** Reads only what the user set: keys whose sole source is Hadoop's built-in core-default.xml count as unset. */
+  def userSet(conf: org.apache.hadoop.conf.Configuration): String => Option[String] = k => {
+    val sources = conf.getPropertySources(k)
+    if (sources == null || sources.forall(_ == "core-default.xml")) None else Option(conf.get(k))
+  }
+
   /** Derived defaults, overridden by explicit `hadoop.*` options. */
   def effective(options: GlueCatalogOptions, sessionHadoop: String => Option[String]): Map[String, String] =
     derive(options, sessionHadoop) ++ options.hadoop
