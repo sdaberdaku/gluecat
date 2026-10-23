@@ -13,18 +13,19 @@ import org.scalatestplus.junit.JUnitRunner
 class EntryConverterReadSuite extends AnyFunSuite {
   private def convert(name: String) = EntryConverter.toCatalogTable("acct_a", Fixtures.table(name))
 
-  test("delta-spark35-ctas: empty schema, path from the SerDe, hidden parameters removed") {
-    val t = convert("delta-spark35-ctas")
-    assert(t.provider.contains("delta"))
-    assert(t.storage.locationUri.contains(new URI("s3a://bucket-a/delta/t")))
-    assert(t.schema.isEmpty)
-    assert(t.tracksPartitionsInCatalog)
-    assert(t.tableType == CatalogTableType.EXTERNAL)
-    assert(t.identifier == TableIdentifier("t", Some("db"), Some("acct_a")))
-    assert(!t.properties.contains("EXTERNAL") && !t.properties.contains("transient_lastDdlTime"))
-    assert(!t.properties.keys.exists(_.startsWith("spark.sql.")))
-    assert(t.createVersion == "3.5.5")
-  }
+  for ((fixture, version) <- Seq("delta-spark35-ctas" -> "3.5.5", "delta-spark41-ctas" -> "4.1.3"))
+    test(s"$fixture: empty schema, path from the SerDe, hidden parameters removed") {
+      val t = convert(fixture)
+      assert(t.provider.contains("delta"))
+      assert(t.storage.locationUri.contains(new URI("s3a://bucket-a/delta/t")))
+      assert(t.schema.isEmpty)
+      assert(t.tracksPartitionsInCatalog)
+      assert(t.tableType == CatalogTableType.EXTERNAL)
+      assert(t.identifier == TableIdentifier("t", Some("db"), Some("acct_a")))
+      assert(!t.properties.contains("EXTERNAL") && !t.properties.contains("transient_lastDdlTime"))
+      assert(!t.properties.keys.exists(_.startsWith("spark.sql.")))
+      assert(t.createVersion == version)
+    }
 
   test("delta-rewritten: real schema and Delta properties kept") {
     val t = convert("delta-rewritten")

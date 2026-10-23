@@ -21,17 +21,21 @@ final case class HttpClientOptions(
     apacheConnectionTimeToLiveMs: Option[Long], apacheExpectContinueEnabled: Option[Boolean],
     apacheMaxConnections: Option[Int], apacheTcpKeepAliveEnabled: Option[Boolean],
     apacheUseIdleConnectionReaperEnabled: Option[Boolean]) {
-  // Proxy settings belong to the apache client.
+  // Proxy settings apply to both client types; on their own they imply apache.
+  private[gluecat] def hasProxyKeys: Boolean =
+    Seq(proxyEndpoint, proxyUseSystemPropertyValues, proxyUseEnvironmentVariableValues).exists(_.isDefined)
   private[gluecat] def hasApacheKeys: Boolean = Seq(
-    proxyEndpoint, proxyUseSystemPropertyValues, proxyUseEnvironmentVariableValues, apacheSocketTimeoutMs,
-    apacheConnectionTimeoutMs, apacheConnectionAcquisitionTimeoutMs, apacheConnectionMaxIdleTimeMs,
-    apacheConnectionTimeToLiveMs, apacheExpectContinueEnabled, apacheMaxConnections, apacheTcpKeepAliveEnabled,
-    apacheUseIdleConnectionReaperEnabled).exists(_.isDefined)
+    apacheSocketTimeoutMs, apacheConnectionTimeoutMs, apacheConnectionAcquisitionTimeoutMs,
+    apacheConnectionMaxIdleTimeMs, apacheConnectionTimeToLiveMs, apacheExpectContinueEnabled, apacheMaxConnections,
+    apacheTcpKeepAliveEnabled, apacheUseIdleConnectionReaperEnabled).exists(_.isDefined)
   private[gluecat] def hasUrlConnectionKeys: Boolean =
     urlConnectionSocketTimeoutMs.isDefined || urlConnectionConnectionTimeoutMs.isDefined
 
   def effectiveType: Option[String] = clientType.orElse {
-    if (hasApacheKeys) Some("apache") else if (hasUrlConnectionKeys) Some("urlconnection") else None
+    if (hasApacheKeys) Some("apache")
+    else if (hasUrlConnectionKeys) Some("urlconnection")
+    else if (hasProxyKeys) Some("apache")
+    else None
   }
 }
 

@@ -160,7 +160,8 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
   private val legacyOptionsWarned = new AtomicBoolean(false)
 
   // Delta's legacy storeOptionsAsProperties writes every write option into the table's metadata, so the catalog's
-  // options stay out of the write while it is on; priming still gives the write the catalog's filesystem.
+  // options stay out of the write while it is on. Priming then gives the catalog's filesystem to the driver JVM
+  // only: data files written by executors use the session configuration in any multi-JVM deployment.
   private def writeInfo(info: LogicalWriteInfo, stageProperties: java.util.Map[String, String]): LogicalWriteInfo =
     if (!SparkSession.active.conf.get(DeltaFormatSupport.LegacyStoreOptions, "false").toBoolean) {
       hadoopOptions.writeOptions(info, stageProperties)

@@ -32,8 +32,8 @@ final case class TableHadoopOptions(values: Map[String, String]) {
   def writeOptions(info: LogicalWriteInfo, stageProperties: java.util.Map[String, String]): LogicalWriteInfo =
     if (values.isEmpty) info
     else {
-      val given = info.options().asCaseSensitiveMap().asScala.toMap
-      val caller = if (given.nonEmpty) given else stageProperties.asScala.collect {
+      val passed = info.options().asCaseSensitiveMap().asScala.toMap
+      val caller = if (passed.nonEmpty) passed else stageProperties.asScala.collect {
         case (k, v) if k.startsWith(TableCatalog.OPTION_PREFIX) => k.stripPrefix(TableCatalog.OPTION_PREFIX) -> v
       }.toMap
       val callerKeys = caller.keySet.map(_.toLowerCase(Locale.ROOT))
