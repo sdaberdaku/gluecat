@@ -7,7 +7,7 @@ Options go under `spark.sql.catalog.<name>.`.
 | `glue.id` | not set: the caller's account | Glue catalog ID (AWS account ID), sent as `CatalogId` on every Glue call. With `client.region` it identifies the Glue Data Catalog: one per account and region. |
 | `glue.endpoint` | SDK default | Endpoint override for the Glue client only (not STS). |
 | `glue.skip-archive` | `true` | `SkipArchive` on every Glue `UpdateTable`. |
-| `client.region` | SDK default region chain | Region of the Glue client, and of STS unless `client.assume-role.region` is set. With `glue.id` it identifies the Glue Data Catalog. Also the derived `fs.s3a.endpoint.region` (see below). |
+| `client.region` | SDK default region chain | Region of the Glue client, and of STS unless `client.assume-role.region` is set. With `glue.id` it identifies the Glue Data Catalog. |
 | `client.credentials-provider` | not set | Class name of an SDK v2 `AwsCredentialsProvider`. Instantiated through a static `create(java.util.Map)`, else a static `create()`, else the no-arg constructor. |
 | `client.credentials-provider.<key>` | not set | Passed, without the prefix, to the provider's `create(java.util.Map)`. |
 | `client.assume-role.arn` | not set | IAM role to assume through STS for every Glue call. |
@@ -69,12 +69,23 @@ further configuration (Iceberg's `AssumeRoleAwsClientFactory` does the same for 
 | `fs.s3a.assumed.role.arn` | `client.assume-role.arn` |
 | `fs.s3a.assumed.role.session.name` | `client.assume-role.session-name` |
 | `fs.s3a.assumed.role.session.duration` | `client.assume-role.timeout-sec`, as `<n>s` |
-| `fs.s3a.assumed.role.external.id` | `client.assume-role.external-id`, when set. Hadoop 3.4 (Spark 4.x) reads it; Hadoop 3.3 (Spark 3.5) ignores it |
-| `fs.s3a.endpoint.region` | `client.region`, when set |
-| `fs.s3a.assumed.role.credentials.provider` | the session's `fs.s3a.aws.credentials.provider`, only when the session sets that key, does not set this one, and its provider is not `AssumedRoleCredentialProvider` itself |
+| `fs.s3a.assumed.role.external.id` | `client.assume-role.external-id`, when set. Hadoop 3.4 (Spark 4.x) only; see below for Spark 3.5 |
+| `fs.s3a.assumed.role.credentials.provider` | the session's effective `fs.s3a.aws.credentials.provider` (your value, else Hadoop's default list), without any `AssumedRoleCredentialProvider` entry. Derived only when you did not set this key and the list is not empty |
 
-The last row keeps IRSA working: Hadoop's own default for the base credentials cannot do web identity. gluecat reads
-the session's S3A settings once, at `initialize`; Hadoop's built-in defaults do not count as set by you.
+The last row is the credentials of S3A's own STS call. It is the identity chain S3A used before the role was
+derived: an instance profile, environment keys, a profile on a laptop, or web identity (IRSA) when the session names
+the web-identity provider. That provider is `com.amazonaws.auth.WebIdentityTokenCredentialsProvider` on Spark 3.5
+(SDK v1) and `software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider` on Spark 4.x (SDK v2).
+S3A does not use the SDK default chain that gluecat's Glue client uses. gluecat reads the session's S3A settings once,
+at `initialize`.
+
+gluecat does not derive `fs.s3a.endpoint.region`: S3A's own region handling applies on every Hadoop line. Set
+`hadoop.fs.s3a.endpoint.region` only with a custom endpoint that names no region, or to pin a region.
+
+On Hadoop 3.3 (Spark 3.5) with `client.assume-role.external-id` set, gluecat derives nothing for S3A and logs one
+warning per catalog. Hadoop 3.3 has no `fs.s3a.assumed.role.external.id`, so S3A would call STS without the external
+ID, and a trust policy that requires it would deny every S3 access. Point `hadoop.fs.s3a.assumed.role.arn` at a data
+role whose trust policy has no external ID condition, or use Spark 4.x.
 
 gluecat never derives `fs.s3a.assumed.role.sts.endpoint` or `fs.s3a.assumed.role.sts.endpoint.region`. On Hadoop 3.4
 the endpoint takes a host name (`sts.eu-central-1.amazonaws.com`), not a URL, and Hadoop refuses the region without
@@ -88,10 +99,12 @@ the endpoint. A catalog that needs a regional or private STS endpoint sets both 
 4. Session per-bucket keys (`fs.s3a.bucket.<name>.*`) win over all of the above, because S3A copies them over the
    base keys when it opens the bucket. Existing per-bucket setups keep working unchanged.
 
+The table's own storage properties win over the catalog's `hadoop.*` values, and on staged writes the caller's write
+options (including SQL `OPTIONS`) do.
+
 The opt-out is to set `hadoop.fs.s3a.aws.credentials.provider` yourself; there is no separate switch. A catalog with
 no role, or with a custom `client.credentials-provider`, derives nothing (S3A cannot reuse an arbitrary SDK provider)
-and still honours explicit `hadoop.*` keys. On Spark 3.5 (Hadoop 3.3, SDK v1) a catalog without a role needs
-`hadoop.fs.s3a.endpoint.region` (or the session's) to avoid a 301 from S3; with a role the derived key covers it.
+and still honours explicit `hadoop.*` keys.
 
 ### One bucket, one way
 
@@ -102,8 +115,8 @@ being enabled (Hadoop's default). The rule that follows: reach a bucket one way 
 through the session configuration, never both. Two catalogs with different roles on the same bucket share the first
 instance.
 
-Direct path access (`` delta.`s3://...` ``, `spark.read.parquet`) never reaches a catalog and always uses the session
-configuration. See [How it works](how-it-works.md#per-catalog-hadoop-configuration).
+Direct path access (`` delta.`s3://...` ``, `spark.read.parquet`) never reaches a catalog: it uses whatever the cache
+already holds for that bucket, else the session configuration. See [How it works](how-it-works.md#per-catalog-hadoop-configuration).
 
 ### What is visible
 
@@ -140,8 +153,8 @@ Iceberg's `iceberg-aws`; `apache-client` and `url-connection-client` are optiona
 compatibility within 2.x, but CI does not test them; older versions are not supported.
 
 gluecat sets the standard retry mode (3 attempts), which overrides `AWS_RETRY_MODE` (the SDK's own default is the
-legacy mode), and otherwise keeps the SDK defaults: no API call timeout, and the SDK's default HTTP client resolution
-unless you set `http-client.*`.
+legacy mode), and otherwise keeps the SDK defaults: no API call timeout, and the SDK's default HTTP client
+resolution unless you set `http-client.*`.
 Assume-role sessions last `client.assume-role.timeout-sec` (3600 s by default) and refresh on the calling thread.
 Spark never closes catalog plugins and creates new ones for new sessions (`newSession`, Spark Connect and Thrift
 server sessions, each streaming query), so gluecat starts no background refresh that would outlive them.

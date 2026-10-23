@@ -19,9 +19,10 @@ a Hive metastore, and Delta Lake works only through that catalog (`DeltaCatalog`
 installing AWS's Glue Data Catalog client for Hive, patched Hive jars and the AWS SDK v1 included, and plugging it into
 that one session catalog. The result is one Glue catalog ID and one set of credentials for the whole Spark application.
 
-When each customer, team or environment has its own AWS account, the S3 data can already live in each account, but every Delta table still has to be registered in one shared Glue catalog. A single
-Spark application, for example a Spark Connect server that runs jobs for several accounts, cannot register account
-A's tables in account A's Glue and account B's tables in account B's Glue.
+When each customer, team or environment has its own AWS account, the S3 data can already live in each account, but
+every Delta table still has to be registered in one shared Glue catalog. A single Spark application, for example a
+Spark Connect server that runs jobs for several accounts, cannot register account A's tables in account A's Glue and
+account B's tables in account B's Glue.
 
 Iceberg's `GlueCatalog` already gives each named catalog its own Glue catalog ID and IAM role. gluecat brings that
 model to Glue tables in general and to Delta tables in particular. Its option names follow Iceberg's AWS properties.

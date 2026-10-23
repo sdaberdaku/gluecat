@@ -86,7 +86,9 @@ evaluates three kinds of ARN, and an action needs the ones above its object in t
 | Database | `arn:aws:glue:<region>:<account>:database/<db>` |
 | Table | `arn:aws:glue:<region>:<account>:table/<db>/<table>` |
 
-To limit a role to one database, list the catalog ARN, `database/<db>` and `table/<db>/*` as `Resource`. The
+To limit a role to one database, list the catalog ARN, `database/<db>`, `table/<db>/*` and
+`userDefinedFunction/<db>/*` (AWS lists it among the resources of `DeleteDatabase`) as `Resource`; `GetDatabases` may need
+`database/*`. The
 `<region>` and `<account>` are those of the Glue catalog (`client.region` and `glue.id`). Check a narrowed policy
 against your own account before relying on it. Data access is separate: the same role also needs S3 permissions for
 the table locations when [S3 access follows the catalog role](configuration.md#derived-s3-defaults). See

@@ -30,7 +30,7 @@ that the cache holds the right instance before Delta or Spark ask with the sessi
 cache being enabled. It does not disable the cache: a new, never-closed `S3AFileSystem` per configuration on every
 executor task would leak. The operator's rule is one bucket, one way: through one catalog's role or through the
 session configuration, never both. Direct path access (`` delta.`s3://...` ``, `spark.read.parquet`) never reaches a
-catalog and uses the session configuration.
+catalog and uses whatever the cache already holds for that bucket, else the session configuration.
 
 ## Why Delta's create path cannot be used as is
 

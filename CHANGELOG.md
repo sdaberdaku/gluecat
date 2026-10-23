@@ -7,7 +7,11 @@
 - S3A inherits the catalog's role by default. A catalog with `client.assume-role.arn` (and no
   `client.credentials-provider`) now makes S3A assume the same role for its tables' files. This changes behaviour for
   existing catalogs with a role: set `hadoop.fs.s3a.aws.credentials.provider` to opt out. Session per-bucket keys
-  (`fs.s3a.bucket.<name>.*`) still win.
+  (`fs.s3a.bucket.<name>.*`) still win. S3A's own STS call keeps the credentials chain the session used before:
+  gluecat derives `fs.s3a.assumed.role.credentials.provider` from the session's effective
+  `fs.s3a.aws.credentials.provider` (name the web-identity provider for IRSA). gluecat does not derive
+  `fs.s3a.endpoint.region`. On Spark 3.5 (Hadoop 3.3), which cannot send an external ID, a catalog with
+  `client.assume-role.external-id` derives nothing for S3A and logs a warning.
 - `http-client.*` options (client type, timeouts, pool size, proxy) for the Glue and STS clients, with Iceberg's names.
   `software.amazon.awssdk:apache-client` and `url-connection-client` are optional `provided` dependencies.
 - The integration tests run under IAM enforcement, with a role that has exactly ten Glue actions. That policy is
