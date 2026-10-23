@@ -7,8 +7,11 @@ JDK 17 or later builds every module (CI builds the Scaladoc on JDK 17; only the 
 - Shared Scala sources in `src/main/scala` and `src/test/scala`, compiled once per artifact.
 - One Maven module per artifact under `modules/spark-<minor>_<scala>/`. Each module pins its Spark, Delta and Scala
   versions as properties; CI overrides them per matrix row.
-- `matrix.json` is the single source of the Spark x Delta x JDK test matrix. Pushes to `main` run every row; pull
-  requests run the smoke rows.
+- `matrix.json` is the single source of the Spark x Delta x JDK test matrix. Pull requests run every row, the
+  compatibility suites and the docs build; the `ci-ok` job summarises them and is the required status check of the
+  `main` branch protection, so nothing merges without a green matrix. Pushes to `main` run no tests (the merged tree is
+  the one the pull request tested; `pages.yml` publishes the site). `workflow_dispatch` with `full=false` runs the smoke
+  rows only.
 - The AWS SDK v2 modules `glue` and `sts` are `provided` dependencies: the jar contains no SDK classes, and the
   published POM (the module's own `pom.xml`) lists them as `provided` and nothing from the SDK at compile or runtime
   scope (`PackagingIT` and `PublishedPomSuite` check both).

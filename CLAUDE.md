@@ -33,7 +33,8 @@ reads other data-source tables, without the Hive metastore client. Works as a na
 - Unit tests, jar and integration tests against the jar: `./mvnw -pl modules/spark-4.1_2.13 verify`
 - Other Spark lines: replace the module directory; override versions with `-Dspark.version=... -Ddelta.version=...`, and the Delta artifact with `-Ddelta.artifact=...` when it differs from the module default (Spark 4.0 and 4.1 modules default to `delta-spark_4.0_2.13` / `delta-spark_4.1_2.13`; use `delta-spark_2.13` for Delta 4.0.1 on 4.0 and 4.1.0 to 4.3.1 on 4.1).
 - JDK 17 builds every module; CI runs each module on every JDK its Spark line supports. `ci.yml` runs every
-  `matrix.json` row on pushes to `main` and on dispatch with `full=true`, the smoke rows on pull requests.
+  `matrix.json` row on pull requests (plus compat and docs; the `ci-ok` job is the required check of the `main`
+  branch protection) and on dispatch with `full=true`; nothing runs on pushes to `main`.
 - Release: pushing a tag `vX.Y.Z` runs `release.yml` (full matrix, then one Central deployment of every module and
   a GitHub Release). Local check without publishing: `./mvnw -Prelease -DskipTests -DskipITs -Dgpg.skip=true package`
   (sources and scaladoc jars per module).
@@ -63,7 +64,9 @@ reads other data-source tables, without the Hive metastore client. Works as a na
 
 ## Standing consent (owner, 2026-10-22)
 
-- Push to `implementation` and merge/push `main` without asking.
+- Push feature branches and open pull requests without asking; merge a pull request into `main` without asking once
+  `ci-ok` is green (`main` is protected: pull requests only, `ci-ok` required, branch up to date, no force pushes,
+  administrators included).
 - Commit and push README, CHANGELOG and docs without showing a draft first (this overrides the "show drafts" rule
   above).
 - Run GitHub Actions (`gh workflow run`), start and stop local Docker containers, and rewrite unpublished branch

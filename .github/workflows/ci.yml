@@ -1,8 +1,10 @@
 name: CI
 
+# Pull requests run the full matrix, the compatibility suites and the docs build; `ci-ok` is the required status
+# check of the `main` branch protection, so a merge needs every row green. Pushes to `main` run nothing here: the
+# merged tree is the one the pull request tested (branches must be up to date), `pages.yml` publishes the site and
+# `release.yml` runs the matrix again on the tag before publishing.
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -28,9 +30,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - id: select
-        # Pushes run every row; pull requests run the smoke rows; workflow_dispatch and workflow_call follow inputs.full.
+        # Pull requests run every row; workflow_dispatch and workflow_call follow inputs.full (false = the smoke rows).
         # github.event_name cannot tell a workflow_call apart: in a called workflow it is the caller's event.
-        run: echo "matrix=$(jq -c '[.[] | select(${{ (github.event_name == 'push' || inputs.full) && 'true' || '.smoke' }})]' matrix.json)" >> "$GITHUB_OUTPUT"
+        run: echo "matrix=$(jq -c '[.[] | select(${{ (github.event_name == 'pull_request' || inputs.full) && 'true' || '.smoke' }})]' matrix.json)" >> "$GITHUB_OUTPUT"
 
   test:
     needs: plan
@@ -88,5 +90,16 @@ jobs:
           cache: pip
           cache-dependency-path: docs/site/requirements.txt
       - run: pip install -r docs/site/requirements.txt
-      - run: mkdir -p docs/site/assets && cp docs/logo/gluecat-icon.png docs/site/assets/ && cp CHANGELOG.md docs/site/changelog.md
+      - run: mkdir -p docs/site/assets && cp docs/logo/gluecat-icon.png docs/logo/gluecat-banner.jpg docs/site/assets/ && cp CHANGELOG.md docs/site/changelog.md
       - run: mkdocs build --strict
+
+  # One status check for branch protection: green only when every matrix row, the compatibility suites and the docs
+  # build succeeded (a skipped or cancelled job is a failure here).
+  ci-ok:
+    needs: [test, compat, docs]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "test=${{ needs.test.result }} compat=${{ needs.compat.result }} docs=${{ needs.docs.result }}"
+          test "${{ needs.test.result }}" = success -a "${{ needs.compat.result }}" = success -a "${{ needs.docs.result }}" = success
