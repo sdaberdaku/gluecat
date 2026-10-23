@@ -67,4 +67,41 @@ class GlueCatalogOptionsSuite extends AnyFunSuite {
   test("unknown glue.* and client.* keys do not fail") {
     parse("glue.bogus" -> "1", "client.bogus" -> "2", "some.delta.option" -> "3")
   }
+
+  test("hadoop.* keys are collected without the prefix") {
+    val o = parse("hadoop.fs.s3a.endpoint" -> "http://localhost:4566", "hadoop.fs.s3a.path.style.access" -> "true", "hadoop.blank" -> " ")
+    assert(o.hadoop == Map("fs.s3a.endpoint" -> "http://localhost:4566", "fs.s3a.path.style.access" -> "true"))
+  }
+
+  test("hadoop.* keys are not reported as unknown") {
+    assert(parse("hadoop.anything.goes" -> "1").hadoop == Map("anything.goes" -> "1"))
+  }
+
+  test("http-client keys") {
+    val o = parse("http-client.type" -> "apache", "http-client.apache.max-connections" -> "500",
+      "http-client.apache.socket-timeout-ms" -> "120000", "http-client.proxy-endpoint" -> "http://proxy:3128")
+    assert(o.httpClient.clientType.contains("apache"))
+    assert(o.httpClient.apacheMaxConnections.contains(500))
+    assert(o.httpClient.apacheSocketTimeoutMs.contains(120000L))
+    assert(o.httpClient.proxyEndpoint.contains("http://proxy:3128"))
+  }
+
+  test("http-client.type is implied by the keys present") {
+    assert(parse("http-client.apache.max-connections" -> "500").httpClient.effectiveType.contains("apache"))
+    assert(parse("http-client.proxy-endpoint" -> "http://p:1").httpClient.effectiveType.contains("apache"))
+    assert(parse("http-client.urlconnection.socket-timeout-ms" -> "1000").httpClient.effectiveType.contains("urlconnection"))
+    assert(parse().httpClient.effectiveType.isEmpty)
+  }
+
+  test("http-client errors") {
+    assert(intercept[IllegalArgumentException](parse("http-client.type" -> "netty")).getMessage.contains("'apache' or 'urlconnection'"))
+    assert(intercept[IllegalArgumentException](parse("http-client.apache.max-connections" -> "1",
+      "http-client.urlconnection.socket-timeout-ms" -> "1")).getMessage.contains("set http-client.type"))
+    assert(intercept[IllegalArgumentException](parse("http-client.apache.max-connections" -> "x")).getMessage
+      .contains("http-client.apache.max-connections must be an integer, got 'x'"))
+  }
+
+  test("unknown http-client key warns and is ignored") {
+    assert(parse("http-client.apache.bogus" -> "1").httpClient.effectiveType.isEmpty)
+  }
 }
