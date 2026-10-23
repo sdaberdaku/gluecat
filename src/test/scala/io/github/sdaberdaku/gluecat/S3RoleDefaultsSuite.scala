@@ -17,36 +17,60 @@ class S3RoleDefaultsSuite extends AnyFunSuite {
   private val role = parse("client.assume-role.arn" -> Arn, "client.region" -> "eu-central-1",
     "client.assume-role.external-id" -> "ext-1", "client.assume-role.session-name" -> "sess",
     "client.assume-role.timeout-sec" -> "900")
-  private def noSession(k: String): Option[String] = None
+  private val noSession = SessionHadoop(_ => None, _ => None)
+  /** A session where only `m` is set (user-set and effective views coincide). */
+  private def session(m: Map[String, String]) = SessionHadoop(m.get, m.get)
 
   test("derives the S3A assumed-role keys from the catalog role") {
-    assert(S3RoleDefaults.derive(role, noSession) == Map(
+    assert(S3RoleDefaults.derive(role, noSession, "3.4.1") == Map(
       "fs.s3a.aws.credentials.provider" -> Assumed,
       "fs.s3a.assumed.role.arn" -> Arn,
       "fs.s3a.assumed.role.session.name" -> "sess",
       "fs.s3a.assumed.role.session.duration" -> "900s",
-      "fs.s3a.assumed.role.external.id" -> "ext-1",
-      "fs.s3a.endpoint.region" -> "eu-central-1"))
+      "fs.s3a.assumed.role.external.id" -> "ext-1"))
   }
 
-  test("no external id, no region: those rows are absent") {
+  test("no external id: that row is absent") {
     val d = S3RoleDefaults.derive(parse("client.assume-role.arn" -> Arn), noSession)
     assert(d.keySet == Set("fs.s3a.aws.credentials.provider", "fs.s3a.assumed.role.arn",
       "fs.s3a.assumed.role.session.name", "fs.s3a.assumed.role.session.duration"))
   }
 
-  test("the base provider is copied from the session when the session sets only the main provider") {
-    val session = Map("fs.s3a.aws.credentials.provider" ->
-      "software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider")
-    assert(S3RoleDefaults.derive(role, session.get)("fs.s3a.assumed.role.credentials.provider") ==
-      session("fs.s3a.aws.credentials.provider"))
+  private val BaseKey = "fs.s3a.assumed.role.credentials.provider"
+  private val MainKey = "fs.s3a.aws.credentials.provider"
+  private val Web = "software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider"
+
+  test("a user-set main provider is copied to the base key") {
+    assert(S3RoleDefaults.derive(role, session(Map(MainKey -> Web)), "3.4.1")(BaseKey) == Web)
   }
 
-  test("the base provider is not copied when the session already sets it, or when the session provider is the assumed-role provider") {
-    val set = Map("fs.s3a.aws.credentials.provider" -> "X", "fs.s3a.assumed.role.credentials.provider" -> "Y")
-    assert(!S3RoleDefaults.derive(role, set.get).contains("fs.s3a.assumed.role.credentials.provider"))
-    val recursive = Map("fs.s3a.aws.credentials.provider" -> Assumed)
-    assert(!S3RoleDefaults.derive(role, recursive.get).contains("fs.s3a.assumed.role.credentials.provider"))
+  test("the assumed-role provider is removed from the copied list, others keep their order; alone, the row is absent") {
+    val list = s"A,$Assumed, B ,C"
+    assert(S3RoleDefaults.derive(role, session(Map(MainKey -> list)), "3.4.1")(BaseKey) == "A,B,C")
+    assert(!S3RoleDefaults.derive(role, session(Map(MainKey -> Assumed)), "3.4.1").contains(BaseKey))
+    assert(S3RoleDefaults.derive(role, session(Map(MainKey -> s"x.y.$Assumed,A")), "3.4.1")(BaseKey) == "A")
+  }
+
+  test("a user-set base key is not overridden") {
+    val set = Map(MainKey -> "X", BaseKey -> "Y")
+    assert(!S3RoleDefaults.derive(role, session(set)).contains(BaseKey))
+  }
+
+  test("never derives the endpoint region, even with client.region") {
+    assert(!S3RoleDefaults.derive(role, noSession).contains("fs.s3a.endpoint.region"))
+  }
+
+  test("external id on Hadoop 3.3 derives nothing and is flagged; 3.4 and no external id derive in full") {
+    assert(S3RoleDefaults.derive(role, noSession, "3.3.4").isEmpty)
+    assert(S3RoleDefaults.externalIdUnsupported(role, "3.3.4"))
+    val full = S3RoleDefaults.derive(role, noSession, "3.4.1")
+    assert(full("fs.s3a.assumed.role.external.id") == "ext-1")
+    assert(full.contains("fs.s3a.assumed.role.arn"))
+    assert(!S3RoleDefaults.externalIdUnsupported(role, "3.4.1"))
+    val noExt = parse("client.assume-role.arn" -> Arn)
+    assert(S3RoleDefaults.derive(noExt, noSession, "3.3.4").contains("fs.s3a.assumed.role.arn"))
+    assert(!S3RoleDefaults.externalIdUnsupported(noExt, "3.3.4"))
+    assert(!S3RoleDefaults.externalIdUnsupported(parse(), "3.3.4"))
   }
 
   test("never derives the STS endpoint keys") {
@@ -61,31 +85,36 @@ class S3RoleDefaultsSuite extends AnyFunSuite {
 
   test("explicit hadoop.* wins over derived") {
     val o = parse("client.assume-role.arn" -> Arn, "hadoop.fs.s3a.aws.credentials.provider" -> "com.example.Base")
-    val e = S3RoleDefaults.effective(o, noSession)
+    val e = S3RoleDefaults.effective(o, noSession, "3.4.1")
     assert(e("fs.s3a.aws.credentials.provider") == "com.example.Base")
     assert(e("fs.s3a.assumed.role.arn") == Arn)
   }
 
-  private val BaseKey = "fs.s3a.assumed.role.credentials.provider"
-  private val MainKey = "fs.s3a.aws.credentials.provider"
-
   test("userSet ignores Hadoop's built-in defaults") {
     val conf = new Configuration()
     assert(conf.get(BaseKey) != null)
-    assert(S3RoleDefaults.userSet(conf)(BaseKey).isEmpty)
-    assert(S3RoleDefaults.userSet(conf)(MainKey).isEmpty)
+    assert(SessionHadoop(conf).userSet(BaseKey).isEmpty)
+    assert(SessionHadoop(conf).userSet(MainKey).isEmpty)
   }
 
   test("userSet sees values the user set") {
     val conf = new Configuration()
     conf.set(MainKey, "X")
-    assert(S3RoleDefaults.userSet(conf)(MainKey).contains("X"))
+    assert(SessionHadoop(conf).userSet(MainKey).contains("X"))
   }
 
-  test("the base provider is derived on a session with Hadoop defaults when the user set only the main provider") {
+  test("with nothing set by the user the base is Hadoop's default main provider list") {
     val conf = new Configuration()
-    val web = "software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider"
-    conf.set(MainKey, web)
-    assert(S3RoleDefaults.derive(role, S3RoleDefaults.userSet(conf))(BaseKey) == web)
+    val default = conf.get(MainKey)
+    assert(default != null && default.nonEmpty)
+    val d = S3RoleDefaults.derive(role, SessionHadoop(conf), "3.4.1")
+    assert(d(BaseKey) == default.split(",").map(_.trim).filter(_.nonEmpty).mkString(","))
+    assert(d(MainKey) == Assumed)
+  }
+
+  test("a user-set main provider on a real Configuration is copied") {
+    val conf = new Configuration()
+    conf.set(MainKey, Web)
+    assert(S3RoleDefaults.derive(role, SessionHadoop(conf), "3.4.1")(BaseKey) == Web)
   }
 }

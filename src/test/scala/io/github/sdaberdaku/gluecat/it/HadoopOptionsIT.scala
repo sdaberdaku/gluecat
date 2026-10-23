@@ -30,8 +30,8 @@ class HadoopOptionsIT extends SparkIT(Named) {
       "hadoop.fs.s3a.assumed.role.sts.endpoint.region" -> "eu-central-1")
     else Map.empty[String, String]
 
-  // The session leaves fs.s3a.aws.credentials.provider unset, so no base provider is derived for the role catalogs:
-  // S3A's default base (SimpleAWSCredentialsProvider, fs.s3a.access.key) is the identity that assumes the role.
+  // The session leaves fs.s3a.aws.credentials.provider unset, so the derived base provider is Hadoop's default list,
+  // whose SimpleAWSCredentialsProvider (fs.s3a.access.key) is the identity that assumes the role.
   override protected def sessionConf: Map[String, String] = Map(
     "spark.hadoop.fs.s3a.endpoint" -> "http://127.0.0.1:1",
     "spark.hadoop.fs.s3a.path.style.access" -> "true",
@@ -47,7 +47,10 @@ class HadoopOptionsIT extends SparkIT(Named) {
       "glue.id" -> "222222222222",
       "client.assume-role.arn" -> IamFixture.ensureRole("222222222222", "data-access",
         actions = IamFixture.GlueActions ++ Seq("s3:*"), trustedAccounts = Seq("111111111111")),
-      "client.assume-role.region" -> "eu-central-1") ++ StsEndpoint
+      "client.assume-role.region" -> "eu-central-1",
+      // MiniStack's custom endpoint names no region and SDK v1 (Spark 3.5) would sign for us-east-1; on AWS S3A's own
+      // region handling applies, so gluecat derives no S3A region.
+      "hadoop.fs.s3a.endpoint.region" -> "eu-central-1") ++ StsEndpoint
     Map(
       // No role: explicit hadoop.* keys only, over the session's base keys (the fixture role has no S3 actions).
       // Without a role nothing derives fs.s3a.endpoint.region, and SDK v1 (Spark 3.5) would sign for us-east-1.
