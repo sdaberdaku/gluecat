@@ -7,7 +7,7 @@ changes) are covered by unit tests.
 |---|---|---|
 | `SHOW TABLES`, table exists, `DESCRIBE`, load | Yes; loaded through Delta's `DeltaCatalog` | Yes |
 | Reads | Yes, including time travel | Through Spark's file path, only for tables whose partitions are not tracked in Glue; time travel fails (Delta only) |
-| `INSERT`, `INSERT OVERWRITE` | Yes | Files are written at the table location through Spark's file path; the Glue entry is not updated (no partitions, no statistics) |
+| `INSERT`, `INSERT OVERWRITE` | Yes | Files are written at the table location through Spark's file path; the Glue entry is not updated (no partitions, no statistics). Refused while `spark.sql.statistics.size.autoUpdate.enabled` is on (see [Limitations](limitations.md)) |
 | `MERGE`, `UPDATE`, `DELETE`, `OPTIMIZE`, `VACUUM`, `DESCRIBE HISTORY` by name | Yes | No (Delta only) |
 | `CREATE TABLE ... LOCATION` | Yes: creates the Delta table there (or registers the one already there), then the Glue entry | Yes, Glue entry only |
 | `CREATE TABLE` without `LOCATION` (managed) | Location from the database location, else `<warehouse>/<db>.db/<table>`; fails with neither | Same, Glue entry only |

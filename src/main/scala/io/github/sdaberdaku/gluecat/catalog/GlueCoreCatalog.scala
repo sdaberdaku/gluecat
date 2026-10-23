@@ -4,6 +4,7 @@ import java.util.Locale
 
 import org.apache.hadoop.fs.Path
 import org.apache.spark.SPARK_VERSION
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.analysis.NonEmptyNamespaceException
 import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogTable, CatalogTableType, CatalogUtils}
@@ -136,8 +137,13 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
 
   override def tableExists(ident: Identifier): Boolean = loadEntry(ident).isDefined
 
-  override def loadTable(ident: Identifier): Table =
-    V1TableBridge.wrap(EntryConverter.toCatalogTable(catalogName, loadEntry(ident).getOrElse(throw missing(normalize(ident)))))
+  override def loadTable(ident: Identifier): Table = {
+    val table = EntryConverter.toCatalogTable(catalogName, loadEntry(ident).getOrElse(throw missing(normalize(ident))))
+    if (!isDelta(table.provider.get)) GlueCoreCatalog.requireStatsAutoUpdateOff()
+    V1TableBridge.wrap(table)
+  }
+
+  private def isDelta(provider: String) = provider.equalsIgnoreCase("delta")
 
   // Delta's own time travel loads the plain table first, so these are reached for non-Delta tables only.
   private def noTimeTravel(ident: Identifier): Table = {
@@ -175,6 +181,7 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
       properties: java.util.Map[String, String]): Table = {
     val n = normalize(ident)
     val spec = TableProperties.split(properties, "parquet")
+    if (!isDelta(spec.provider)) GlueCoreCatalog.requireStatsAutoUpdateOff() // before the entry exists
     spec.properties.keys.foreach(rejectOwnedKey)
     val location = resolveLocation(n, spec)
     registerTable(n, CatalogTable(
@@ -299,4 +306,22 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
           s"Drop ${qualified(o)} to finish the rename. ${e.getMessage}", e)
     }
   }
+}
+
+object GlueCoreCatalog {
+  private val StatsAutoUpdate = "spark.sql.statistics.size.autoUpdate.enabled"
+
+  // Unit tests run without a session.
+  private def sessionConf(key: String, default: String): String =
+    SparkSession.getActiveSession.orElse(SparkSession.getDefaultSession).map(_.conf.get(key, default)).getOrElse(default)
+
+  /** With the setting on, Spark's V1 insert path (InsertIntoHadoopFsRelationCommand, CommandUtils.updateTableStats)
+    * reads and alters the table's statistics through spark.sessionState.catalog, which qualifies the name to
+    * spark_catalog: a same-named table there gets its statistics changed, otherwise the INSERT fails after writing.
+    * A runtime setting, so non-Delta loads and creates by name check it every time. */
+  def requireStatsAutoUpdateOff(): Unit =
+    if (sessionConf(StatsAutoUpdate, "false").toBoolean) {
+      throw new IllegalStateException(
+        s"gluecat: disable $StatsAutoUpdate; Spark's V1 insert path updates statistics through spark_catalog")
+    }
 }

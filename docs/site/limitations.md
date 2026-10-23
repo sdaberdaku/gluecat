@@ -32,6 +32,11 @@
   initialize while `spark.databricks.delta.catalog.update.enabled` is `true`. It is a runtime setting: the catalog
   checks it again before every Delta operation by name. While it is on, loads, reads, writes, creates, alters and
   refreshes of tables by name fail; `DROP TABLE`, listings and database operations do not go through the check.
+- Spark's statistics auto-update (`spark.sql.statistics.size.autoUpdate.enabled`, default `false`) makes an `INSERT`
+  into a non-Delta table read and alter the statistics of the same-named table in `spark_catalog`'s built-in catalog
+  (`CommandUtils.updateTableStats` goes through `spark.sessionState.catalog`), or fail after writing when there is
+  none. While it is `true`, loads, reads, writes and creates of non-Delta tables by name fail before anything is
+  written. Delta tables are not affected.
 - Concurrent table alters: every Glue `UpdateTable` passes the `VersionId` read before the change, so the second of
   two concurrent alters fails with a retryable error; run the statement again. Glue databases have no `VersionId`, so
   concurrent database alters are last-writer-wins.

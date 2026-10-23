@@ -173,7 +173,7 @@ one fails.
 |---|---|---|
 | list, exists, load | yes; load returns Delta's `DeltaTableV2` | yes; load returns a `V1Table` that Spark reads through its V1 path |
 | reads, time travel | Delta | Spark V1 read; only tables whose partitions are not tracked in Glue (Spark refuses those from a named catalog; as `spark_catalog` they would need the in-memory catalog to list partitions) |
-| INSERT, MERGE, UPDATE, DELETE, OPTIMIZE, VACUUM, DESCRIBE HISTORY by name | Delta, on the loaded table | INSERT / INSERT OVERWRITE work through Spark's file path where Spark allows them; the Glue entry is not updated (no partition or statistics sync); MERGE, UPDATE, DELETE are Delta-only |
+| INSERT, MERGE, UPDATE, DELETE, OPTIMIZE, VACUUM, DESCRIBE HISTORY by name | Delta, on the loaded table | INSERT / INSERT OVERWRITE work through Spark's file path where Spark allows them; the Glue entry is not updated (no partition or statistics sync); MERGE, UPDATE, DELETE are Delta-only. With `spark.sql.statistics.size.autoUpdate.enabled` on, Spark's V1 insert path (`CommandUtils.updateTableStats`) alters the statistics of the same-named table in `spark_catalog`, so non-Delta loads and creates by name are refused while it is on (a runtime setting, checked every time) |
 | CREATE TABLE (external, with LOCATION) | yes | yes, metadata only |
 | CREATE TABLE (managed, no LOCATION) | yes, location derived (below) | yes, metadata only |
 | CTAS, `saveAsTable` | yes, with Delta's semantics | no |
@@ -532,7 +532,7 @@ Then:
   `CatalogId`), and the isolation tests assert that no request carried a `CatalogId` other than the
   catalog's own.
 - A `spark_catalog` backed by a separate Glue account in the same session, to show that no operation on
-  our catalogs, including with the `UpdateCatalog` hook on, touches it.
+  our catalogs, including with the `UpdateCatalog` hook or statistics auto-update on, touches it.
 - `VersionId` conflict on two concurrent table alters (property and schema changes). Glue databases
   have no `VersionId`, so concurrent namespace alters are last-writer-wins; the README says so.
 - Credentials: default chain, assume role, custom provider class, and IRSA web identity through the `sts`
@@ -581,6 +581,8 @@ public (Actions minutes are free for public repositories), pushes to `main` run 
   (`mergeSchema`, `MERGE ... WITH SCHEMA EVOLUTION`), which needs a `REFRESH TABLE`. `REFRESH TABLE` on a Delta
   table needs Glue write access.
 - Non-Delta tables: only those whose partitions are not tracked in Glue are readable; INSERT writes files but does not update the Glue entry; MERGE, UPDATE and DELETE are Delta-only.
+- `spark.sql.statistics.size.autoUpdate.enabled = true`: non-Delta loads and creates by name fail, because Spark's V1
+  insert path would update the statistics of the same-named table in `spark_catalog` (or fail after writing).
 - Views and functions: named catalogs refuse them with Spark's `CATALOG_OPERATION` error; in `spark_catalog` mode Spark sends them to its in-memory catalog, which has only `default` (`CREATE VIEW` in a Glue database fails with `SCHEMA_NOT_FOUND`); temporary views work. Materialized views are not supported.
 - DROP never deletes data; PURGE is not supported. This differs from Spark's managed-table semantics:
   dropped managed tables leave their directories under `<warehouse>/<db>.db/` or the database location,
