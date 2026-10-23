@@ -86,8 +86,7 @@ spark.sql.catalog.acct_a.glue.id                         = 111111111111
 spark.sql.catalog.acct_a.client.region                   = eu-central-1
 spark.sql.catalog.acct_a.client.assume-role.arn          = arn:aws:iam::111111111111:role/glue-access
 # optional
-# urlconnection needs software.amazon.awssdk:url-connection-client on the classpath
-spark.sql.catalog.acct_a.http-client.type                = urlconnection
+spark.sql.catalog.acct_a.http-client.apache.max-connections = 100
 spark.sql.catalog.acct_a.hadoop.fs.s3a.connection.maximum = 100
 spark.sql.catalog.acct_a.warehouse                       = s3://bucket-a/warehouse
 
@@ -108,8 +107,10 @@ CREATE DATABASE acct_b.db;
 CREATE TABLE acct_b.db.events USING delta LOCATION 's3://bucket-b/db/events' AS SELECT * FROM acct_a.db.events;
 ```
 
-A catalog never calls any Glue catalog other than its own `glue.id`. With `client.assume-role.arn` and no `client.credentials-provider`, S3A assumes the
-same role for the files of the catalog's tables. More: [across AWS accounts](https://sdaberdaku.github.io/gluecat/multi-account/).
+A catalog never calls any Glue catalog other than its own `glue.id`. With `client.assume-role.arn` and no
+`client.credentials-provider`, S3A assumes the same role for the files of the catalog's tables.
+`http-client.type = urlconnection` needs `software.amazon.awssdk:url-connection-client` on the classpath. More:
+[across AWS accounts](https://sdaberdaku.github.io/gluecat/multi-account/).
 
 ### As `spark_catalog`
 
@@ -186,10 +187,10 @@ also works without a role if that account's Glue resource policy allows the call
 gluecat is built and tested against SDK 2.24.6, the `bundle` version that `hadoop-aws` 3.4.1 depends on (Hadoop 3.4.1
 is the oldest Hadoop that a supported Spark 4.x line bundles). `glue` and `sts` are `provided` dependencies, as in
 Iceberg's `iceberg-aws`. Newer 2.x versions on the classpath are expected to work, since the SDK keeps backward
-compatibility within 2.x, but CI does not test them; older versions are not supported. gluecat sets the standard retry mode
-(3 attempts), which overrides `AWS_RETRY_MODE` (the SDK's own default is the legacy mode), and otherwise keeps the
-SDK defaults: no API call timeout, the SDK's default HTTP client resolution. Assume-role sessions
-last `client.assume-role.timeout-sec` (3600 s by default) and refresh on the calling thread.
+compatibility within 2.x, but CI does not test them; older versions are not supported. gluecat sets the standard
+retry mode (3 attempts), which overrides `AWS_RETRY_MODE` (the SDK's own default is the legacy mode), and otherwise
+keeps the SDK defaults: no API call timeout, the SDK's default HTTP client resolution. Assume-role sessions last
+`client.assume-role.timeout-sec` (3600 s by default) and refresh on the calling thread.
 
 ## Supported operations
 
@@ -209,7 +210,7 @@ tests. More detail:
 | `CREATE TABLE ... AS SELECT`, `df.write.saveAsTable` | Yes, with Delta's semantics (default mode and `overwrite`, with or without the `path` option) | No: fails and points to Delta |
 | `REPLACE TABLE`, `CREATE OR REPLACE TABLE`, `REPLACE TABLE ... AS SELECT` | Yes | No |
 | `df.writeTo(...)`: `create`, `append`, `overwrite`, `overwritePartitions`, `replace`, `createOrReplace` | Yes; `append` and `overwrite` leave the Glue entry alone | `create`, `replace`, `createOrReplace`: no; `append`, `overwrite`, `overwritePartitions`: not tested |
-| Structured Streaming: `writeStream.toTable`, `readStream.table` | Yes; `toTable` creates the table and its Glue entry when missing | Not tested |
+| Structured Streaming: `writeStream.toTable`, `readStream.table` | Yes; `toTable` creates the table and its Glue entry when missing. `toTable` (and `readStream.table` on Delta 3.3) does not get the catalog's Hadoop options (see Known limitations) | Not tested |
 | `ALTER TABLE` | Applied by Delta to its log. Column changes (add, drop, rename, type, comment, nullability, position; Delta's own rules apply) also rewrite the Glue columns. `SET LOCATION` needs a Delta table at the target, moves the Glue entry and re-syncs its columns. Properties stay in the Delta log | Properties, comment, top-level columns (partition columns cannot be dropped or renamed) and location, in the Glue entry |
 | `REFRESH TABLE` (SQL) | Re-syncs the Glue columns from the Delta log; needs Glue write access | No-op |
 | `ALTER TABLE ... RENAME TO` | Glue entry only; the data stays in place | Same |
@@ -289,7 +290,8 @@ The full list: [limitations](https://sdaberdaku.github.io/gluecat/limitations/).
   database named `delta`, to look up a default collation. Spark ignores the result, but the call shows up in
   CloudTrail, possibly as access denied.
 - Delta 4.1.0 and 4.2.0 fail every `ALTER TABLE` on a Delta table on Spark 4.1.2 and later
-  (`NoClassDefFoundError: IgnoreCachedData`), with or without gluecat. Use Delta 4.3.1 or later there (the versions CI tests).
+  (`NoClassDefFoundError: IgnoreCachedData`), with or without gluecat. Use Delta 4.3.1 or later there (the versions
+  CI tests).
 - On Spark 4.x, `spark.catalog.listTables` fails with the catalog's `UnsupportedTableException` when the database
   holds an entry the catalog cannot load (an Iceberg table, a Hive SerDe table without `spark.sql.sources.provider`):
   it loads every table it lists and tolerates only Spark's own error conditions. `SHOW TABLES` lists such entries,
@@ -300,10 +302,18 @@ The full list: [limitations](https://sdaberdaku.github.io/gluecat/limitations/).
   in a JVM fixes its credentials and endpoint. Reach each bucket one way only, through one catalog's role or through
   the session configuration, never both. Direct path access (`` delta.`s3://...` ``, `spark.read.parquet`) uses
   whatever the cache already holds for that bucket, else the session configuration.
+- `writeStream.toTable` on a Delta table by name (and, on Delta 3.3, `readStream.table`) does not receive the
+  catalog's Hadoop options: the session configuration is used, so with `client.assume-role.arn` streaming reaches the
+  bucket with the session identity while batch work uses the role. Use per-bucket session keys
+  (`fs.s3a.bucket.<name>.*`) for the buckets that streaming writes, or `foreachBatch` with batch writes by name.
+- gluecat opens a table's location with the catalog's options in the driver JVM only. Executor-side Delta work for
+  by-path operations (snapshot reconstruction when the latest log version has no `.crc` file, common for tables
+  written by Trino or delta-rs; data files written under `spark.databricks.delta.legacy.storeOptionsAsProperties`)
+  uses the session configuration in any multi-JVM deployment.
 - `hadoop.*` options reach Delta only as `fs.*` and `dfs.*` keys. `fs.s3a.assumed.role.external.id` exists in Hadoop
   3.4 (Spark 4.x) only; on Spark 3.5 a catalog with `client.assume-role.external-id` derives nothing for S3A.
-- Tested against MiniStack (a local AWS emulator) only, under IAM enforcement with a role that has exactly the
-  published Glue policy: resource-scoped policies, Glue resource policies and cross-account
+- Tested against MiniStack (a local AWS emulator) only; every suite's main catalog runs under IAM enforcement with a
+  role that has exactly the published Glue policy: resource-scoped policies, Glue resource policies and cross-account
   `CatalogId` access are not exercised against real AWS. Cross-account behaviour is tested by request shape (which
   `CatalogId` and which STS identity each call uses), not by AWS authorization outcomes.
 

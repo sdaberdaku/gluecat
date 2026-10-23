@@ -28,10 +28,11 @@
   `spark.sql.*`) cannot be set or removed, and neither can a table-level `collation` (Spark 4.1 and later).
 - Delta creates and replaces run on the table path, so they need `spark.sql.runSQLOnFiles = true` (the default); with
   it off they fail before Delta writes anything.
-- Delta's `UpdateCatalog` hook would write through `spark_catalog` (see [How it works](how-it-works.md#updatecatalog-hook)), so the catalog fails to
-  initialize while `spark.databricks.delta.catalog.update.enabled` is `true`. It is a runtime setting: the catalog
-  checks it again before every Delta operation by name. While it is on, loads, reads, writes, creates, alters and
-  refreshes of tables by name fail; `DROP TABLE`, listings and database operations do not go through the check.
+- Delta's `UpdateCatalog` hook would write through `spark_catalog` (see
+  [How it works](how-it-works.md#updatecatalog-hook)), so the catalog fails to initialize while
+  `spark.databricks.delta.catalog.update.enabled` is `true`. It is a runtime setting: the catalog checks it again
+  before every Delta operation by name. While it is on, loads, reads, writes, creates, alters and refreshes of tables
+  by name fail; `DROP TABLE`, listings and database operations do not go through the check.
 - Spark's statistics auto-update (`spark.sql.statistics.size.autoUpdate.enabled`, default `false`) makes an `INSERT`
   into a non-Delta table read and alter the statistics of the same-named table in `spark_catalog`'s built-in catalog
   (`CommandUtils.updateTableStats` goes through `spark.sessionState.catalog`), or fail after writing when there is
@@ -45,26 +46,38 @@
   database named `delta`, to look up a default collation. Spark ignores the result, but the call shows up in
   CloudTrail, possibly as access denied.
 - Delta 4.1.0 and 4.2.0 fail every `ALTER TABLE` on a Delta table on Spark 4.1.2 and later
-  (`NoClassDefFoundError: IgnoreCachedData`), with or without gluecat. Use Delta 4.3.1 or later there (the versions CI tests).
+  (`NoClassDefFoundError: IgnoreCachedData`), with or without gluecat. Use Delta 4.3.1 or later there (the versions
+  CI tests).
 - On Spark 4.x, `spark.catalog.listTables` fails with the catalog's `UnsupportedTableException` when the database
   holds an entry the catalog cannot load (an Iceberg table, a Hive SerDe table without `spark.sql.sources.provider`):
   it loads every table it lists and tolerates only Spark's own error conditions. `SHOW TABLES` lists such entries,
   and so does `spark.catalog.listTables` on Spark 3.5.
-- STS: see the notes under [Credentials](configuration.md#credentials) (regional public endpoint, `AWS_ENDPOINT_URL` ignored by SDK 2.24.6, private
-  DNS for VPC endpoints).
+- STS: see the notes under [Credentials](configuration.md#credentials) (regional public endpoint, `AWS_ENDPOINT_URL`
+  ignored by SDK 2.24.6, private DNS for VPC endpoints).
 - Hadoop's `FileSystem` cache is keyed by scheme, bucket and user, not by configuration: the first access to a bucket
   in a JVM fixes its credentials and endpoint. Reach each bucket one way only, through one catalog's role or through
   the session configuration, never both. gluecat relies on the cache being enabled (Hadoop's default). Direct path
-  access (`` delta.`s3://...` ``, `spark.read.parquet`) uses whatever the cache already holds for that bucket, else the
-  session configuration. See
-  [Configuration](configuration.md#one-bucket-one-way).
+  access (`` delta.`s3://...` ``, `spark.read.parquet`) uses whatever the cache already holds for that bucket, else
+  the session configuration. See [Configuration](configuration.md#one-bucket-one-way).
+- Streaming: `writeStream.toTable` on a Delta table by name (and, on Delta 3.3, `readStream.table`) does not receive
+  the catalog's Hadoop options. Spark starts the sink with the provider and location only, and Delta builds its log
+  without storage properties, so the session configuration is used. With a catalog that has
+  `client.assume-role.arn`, the streaming job reaches the bucket with the session identity while batch work uses the
+  role, which breaks the one-bucket-one-way rule inside one catalog. Workarounds: per-bucket session keys
+  (`fs.s3a.bucket.<name>.*`) for the buckets that streaming writes, or `foreachBatch` with batch writes by name.
 - `hadoop.*` options reach Delta only as `fs.*` and `dfs.*` keys; other Hadoop keys reach non-Delta data sources only.
   With `spark.databricks.delta.legacy.storeOptionsAsProperties` on, Delta writes get the options only through the
   cached `FileSystem`, not as write options.
+- Priming the `FileSystem` (see [How it works](how-it-works.md#per-catalog-hadoop-configuration)) and skipping the
+  write options under the legacy flag act in the driver JVM only. Executor-side Delta work for by-path operations
+  uses the session configuration in any multi-JVM deployment: snapshot reconstruction when the latest log version has
+  no `.crc` file (common for tables written by Trino or delta-rs), and data files written while
+  `storeOptionsAsProperties` is on. Per-bucket session keys cover those buckets.
 - `fs.s3a.assumed.role.external.id` exists in Hadoop 3.4 (Spark 4.x) only. On Spark 3.5 (Hadoop 3.3) a catalog with
   `client.assume-role.external-id` derives nothing for S3A and logs one warning, because S3A could not send the
   external ID. Use `hadoop.fs.s3a.assumed.role.arn` with a data role that has no external ID condition, or Spark 4.x.
-- Tested against MiniStack (a local AWS emulator) only. The suite runs under IAM enforcement and a role with exactly the published Glue policy,
-  but the emulator's Glue resource ARNs are coarser than AWS's, so resource-scoped policies, Glue resource policies and
-  cross-account `CatalogId` access are not exercised against real AWS. Cross-account behaviour is tested by request shape (which
-  `CatalogId` and which STS identity each call uses), not by AWS authorization outcomes.
+- Tested against MiniStack (a local AWS emulator) only. Every suite's main catalog runs under IAM enforcement and a
+  role with exactly the published Glue policy, but the emulator's Glue resource ARNs are coarser than AWS's, so
+  resource-scoped policies, Glue resource policies and cross-account `CatalogId` access are not exercised against real
+  AWS. Cross-account behaviour is tested by request shape (which `CatalogId` and which STS identity each call uses),
+  not by AWS authorization outcomes.

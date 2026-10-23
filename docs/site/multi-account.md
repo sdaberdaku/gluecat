@@ -8,7 +8,8 @@ regions. Each catalog assumes its own IAM role. The account IDs (`111111111111`,
 
 - The Spark application has one base identity. gluecat's Glue and STS clients find it with the AWS SDK default
   credentials chain (IRSA on EKS, an instance profile, a profile on a laptop). S3A has its own chain, set by the
-  session's `fs.s3a.aws.credentials.provider`; for the same application the two should resolve to the same identity.
+  session's `fs.s3a.aws.credentials.provider` (Hadoop's default list has no profile provider); for the same
+  application the two should resolve to the same identity.
 - Each catalog assumes one role from that identity. The role belongs to the account that owns the Glue catalog and the
   data.
 - Each client uses a different credential path:
@@ -51,8 +52,9 @@ Per catalog, five documents exist. They sit in different accounts, so they usual
    `client.assume-role.external-id`, add a `sts:ExternalId` condition.
 3. **The role's Glue policy** (in the catalog's account): the ten actions from
    [Operations](operations.md#iam-permissions).
-4. **The role's S3 policy** (in the catalog's account): `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject` on the data
-   prefixes, `s3:ListBucket` and `s3:GetBucketLocation` on the buckets.
+4. **The role's S3 policy** (in the catalog's account): `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`,
+   `s3:AbortMultipartUpload` and `s3:ListMultipartUploadParts` on the data prefixes, `s3:ListBucket`,
+   `s3:ListBucketMultipartUploads` and `s3:GetBucketLocation` on the buckets.
 5. **Bucket policies**, only when the bucket lives in another account than the role: the bucket policy must allow the
    role as well.
 
@@ -97,8 +99,8 @@ spark.sql.catalog.acct_a_us.client.assume-role.arn   = arn:aws:iam::111111111111
   duration must allow it, or STS refuses the call. When the base identity is itself an assumed-role session (role
   chaining), AWS caps the chained session at one hour.
 - The SDK refreshes the session on the thread of the first Glue call in the 5 minutes before it expires. There is no
-  background thread. S3A assumes its own session for the same duration (`fs.s3a.assumed.role.session.duration`) and manages
-  its refresh itself.
+  background thread. S3A assumes its own session for the same duration (`fs.s3a.assumed.role.session.duration`) and
+  manages its refresh itself.
 - Each catalog resolves its credentials at its first Glue call, not at `initialize`. A role that cannot be assumed
   fails on the first statement.
 - A revoked role or an expired session shows as an access denied or expired-token error from STS, Glue or S3 on the
@@ -117,11 +119,19 @@ Add explicit `hadoop.*` keys when S3 needs something the role does not give: a c
 derived values for the same key.
 
 The Hadoop `FileSystem` cache is keyed by scheme, bucket and user, not by configuration, so the first access to a
-bucket in a JVM fixes its credentials and endpoint. gluecat primes the cache with the catalog's configuration before
-its own Delta operations. The rule for you is one role per bucket: reach a bucket through one catalog's role, or
-through the session configuration, never both, and do not point two catalogs with different roles at the same bucket.
-Direct path access (`` delta.`s3://bucket-a/...` ``, `spark.read.parquet`) never reaches a catalog: it uses whatever the
-cache already holds for that bucket, else the session configuration.
+bucket in a JVM fixes its credentials and endpoint. gluecat primes the driver's cache with the catalog's
+configuration before its own Delta operations (executor-side Delta work for those operations is not covered; see
+[Limitations](limitations.md)). The rule for you is one role per bucket: reach a bucket through one catalog's role,
+or through the session configuration, never both, and do not point two catalogs with different roles at the same
+bucket. Direct path access (`` delta.`s3://bucket-a/...` ``, `spark.read.parquet`) never reaches a catalog: it uses
+whatever the cache already holds for that bucket, else the session configuration.
+
+Streaming is the exception inside one catalog: `writeStream.toTable` on a Delta table by name (and, on Delta 3.3,
+`readStream.table`) does not receive the catalog's Hadoop options. Spark starts the sink with the provider and
+location only, and Delta builds its log without storage properties, so the session configuration is used: the
+streaming job reaches the bucket with the session identity while batch work uses the role. For the buckets that
+streaming writes, set per-bucket session keys (`fs.s3a.bucket.<name>.*`) with the role, or write with `foreachBatch`
+and batch writes by name.
 
 ### One role for Glue, another for S3
 
@@ -134,12 +144,12 @@ spark.sql.catalog.acct_a.hadoop.fs.s3a.assumed.role.arn        = arn:aws:iam::11
 
 The explicit key wins over the derived one. The session name, duration and external ID still come from the catalog's
 role options, and the base credentials of S3A's STS call from the session. If the data role needs a different external
-ID, set `hadoop.fs.s3a.assumed.role.external.id` too (Hadoop 3.4 only).
+ID, set `hadoop.fs.s3a.assumed.role.external.id` too (Hadoop 3.4 only). Trino offers the same split with
+`hive.metastore.glue.iam-role` and `s3.iam-role`.
 
 On Spark 3.5 (Hadoop 3.3), S3A cannot send an external ID. A catalog with `client.assume-role.external-id` then gets no
 derived S3A role at all, and gluecat logs one warning per catalog. Setting `hadoop.fs.s3a.assumed.role.arn` to a data
-role whose trust policy has no external ID condition, as above, is the remedy (or use Spark 4.x). Trino offers the same split with
-`hive.metastore.glue.iam-role` and `s3.iam-role`.
+role whose trust policy has no external ID condition, as above, is the remedy (or use Spark 4.x).
 
 ### Key mapping
 
@@ -254,12 +264,13 @@ The S3 policy of the same role:
   "Statement": [
     {
       "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload",
+                 "s3:ListMultipartUploadParts"],
       "Resource": "arn:aws:s3:::bucket-b/*"
     },
     {
       "Effect": "Allow",
-      "Action": ["s3:ListBucket", "s3:GetBucketLocation"],
+      "Action": ["s3:ListBucket", "s3:ListBucketMultipartUploads", "s3:GetBucketLocation"],
       "Resource": "arn:aws:s3:::bucket-b"
     }
   ]
@@ -279,4 +290,4 @@ The exact wording varies by service and SDK version.
 | S3: `403 AccessDenied` on `s3a://bucket-b/...` | The role's S3 policy or the bucket policy does not allow the request, or the bucket was first opened through another route (see the cache rule in section 5). |
 | S3: `301 Moved Permanently` or `PermanentRedirect` | S3A is pinned to another region than the bucket's, or a custom endpoint names none. Set `hadoop.fs.s3a.endpoint.region` to the bucket's region, or remove the pin. |
 | `ExpiredToken` or `The security token included in the request is expired` | The session ended and could not be refreshed, or a static key under `hadoop.*` expired. Prefer roles. |
-| `http-client.type '<type>' needs software.amazon.awssdk:<artifact> on the classpath` | Add `apache-client` or `url-connection-client` (2.24.6) to the classpath. |
+| `http-client.type '<type>' needs software.amazon.awssdk:<artifact> on the classpath (missing class <class>)` | Add `apache-client` or `url-connection-client` (2.24.6) to the classpath. |

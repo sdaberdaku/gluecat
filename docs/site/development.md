@@ -7,11 +7,12 @@ JDK 17 or later builds every module (CI builds the Scaladoc on JDK 17; only the 
 - Shared Scala sources in `src/main/scala` and `src/test/scala`, compiled once per artifact.
 - One Maven module per artifact under `modules/spark-<minor>_<scala>/`. Each module pins its Spark, Delta and Scala
   versions as properties; CI overrides them per matrix row.
-- `matrix.json` is the single source of the Spark x Delta x JDK test matrix. Pull requests that are ready for review run every row, the
-  compatibility suites and the docs build (drafts run nothing); the `ci-ok` job summarises them and is the required status check of the
-  `main` branch protection, so nothing merges without a green matrix. Pushes to `main` run no tests (the merged tree is
-  the one the pull request tested; `pages.yml` publishes the site). `workflow_dispatch` with `full=false` runs the smoke
-  rows only.
+- `matrix.json` is the single source of the Spark x Delta x JDK test matrix. Pull requests that are ready for review
+  run every row, the compatibility suites and the docs build; the `ci-ok` job summarises them and is the required
+  status check of the `main` branch protection, so nothing merges without a green matrix. On a draft nothing runs and
+  `ci-ok` is red; marking the pull request ready for review starts the run. Pushes to `main` run no tests (the merged
+  tree is the one the pull request tested; `pages.yml` publishes the site). `workflow_dispatch` with `full=false` runs
+  the smoke rows only.
 - The AWS SDK v2 modules `glue` and `sts` are `provided` dependencies: the jar contains no SDK classes, and the
   published POM (the module's own `pom.xml`) lists them as `provided` and nothing from the SDK at compile or runtime
   scope (`PackagingIT` and `PublishedPomSuite` check both).
@@ -42,10 +43,10 @@ Unit tests are `*Suite` classes (surefire, run against `target/classes`); integr
 ## Compatibility containers
 
 `docker/docker-compose.yml` starts MiniStack, Trino 484 and a legacy Spark 4.1 (Spark 4.1.3 with the Glue Hive
-client for Spark 4; Delta 4.4.1 is downloaded on its first run) for the `TrinoCompat*IT` and `LegacyHiveGlueCompat*IT` suites. `make compat-up` creates
-`/tmp/gluecat-compat` (mode 0777), where the tests write table data that both readers see at the same path, and
-starts the stack; `make compat` runs the suites; `make compat-down` stops it. Without the `TRINO_URL` and
-`LEGACY_SPARK_CONTAINER` environment variables the suites are skipped.
+client for Spark 4; Delta 4.4.1 is downloaded on its first run) for the `TrinoCompat*IT` and `LegacyHiveGlueCompat*IT`
+suites. `make compat-up` creates `/tmp/gluecat-compat` (mode 0777), where the tests write table data that both
+readers see at the same path, and starts the stack; `make compat` runs the suites; `make compat-down` stops it.
+Without the `TRINO_URL` and `LEGACY_SPARK_CONTAINER` environment variables the suites are skipped.
 
 ## This site
 

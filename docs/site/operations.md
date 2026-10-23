@@ -14,7 +14,7 @@ changes) are covered by unit tests.
 | `CREATE TABLE ... AS SELECT`, `df.write.saveAsTable` | Yes, with Delta's semantics (default mode and `overwrite`, with or without the `path` option) | No: fails and points to Delta |
 | `REPLACE TABLE`, `CREATE OR REPLACE TABLE`, `REPLACE TABLE ... AS SELECT` | Yes | No |
 | `df.writeTo(...)`: `create`, `append`, `overwrite`, `overwritePartitions`, `replace`, `createOrReplace` | Yes; `append` and `overwrite` leave the Glue entry alone | `create`, `replace`, `createOrReplace`: no; `append`, `overwrite`, `overwritePartitions`: not tested |
-| Structured Streaming: `writeStream.toTable`, `readStream.table` | Yes; `toTable` creates the table and its Glue entry when missing | Not tested |
+| Structured Streaming: `writeStream.toTable`, `readStream.table` | Yes; `toTable` creates the table and its Glue entry when missing. `toTable` (and `readStream.table` on Delta 3.3) does not get the catalog's Hadoop options (see [Limitations](limitations.md)) | Not tested |
 | `ALTER TABLE` | Applied by Delta to its log. Column changes (add, drop, rename, type, comment, nullability, position; Delta's own rules apply) also rewrite the Glue columns. `SET LOCATION` needs a Delta table at the target, moves the Glue entry and re-syncs its columns. Properties stay in the Delta log | Properties, comment, top-level columns (partition columns cannot be dropped or renamed) and location, in the Glue entry |
 | `REFRESH TABLE` (SQL) | Re-syncs the Glue columns from the Delta log; needs Glue write access | No-op |
 | `ALTER TABLE ... RENAME TO` | Glue entry only; the data stays in place | Same |
@@ -73,7 +73,7 @@ actions:
 }
 ```
 
-CI runs the whole integration suite under a role with exactly this policy, on an emulator that enforces IAM, so an
+In CI, every suite's main catalog runs under a role with exactly this policy, on an emulator that enforces IAM, so an
 action outside the list fails the build. Read-only use (listing, loading and reading tables) needs only the
 `glue:Get*` actions; `REFRESH TABLE` on a Delta table and every create, alter, rename and drop need the write ones.
 
@@ -87,9 +87,9 @@ evaluates three kinds of ARN, and an action needs the ones above its object in t
 | Table | `arn:aws:glue:<region>:<account>:table/<db>/<table>` |
 
 To limit a role to one database, list the catalog ARN, `database/<db>`, `table/<db>/*` and
-`userDefinedFunction/<db>/*` (AWS lists it among the resources of `DeleteDatabase`) as `Resource`; `GetDatabases` may need
-`database/*`. The
-`<region>` and `<account>` are those of the Glue catalog (`client.region` and `glue.id`). Check a narrowed policy
-against your own account before relying on it. Data access is separate: the same role also needs S3 permissions for
+`userDefinedFunction/<db>/*` (AWS lists it among the resources of `DeleteDatabase`) as `Resource`; `GetDatabases` may
+need `database/*`. The `<region>` and `<account>` are those of the Glue catalog (`client.region` and `glue.id`). Check
+a narrowed policy against AWS's action-to-resource table for Glue (the Service Authorization Reference) and against
+your own account before relying on it. Data access is separate: the same role also needs S3 permissions for
 the table locations when [S3 access follows the catalog role](configuration.md#derived-s3-defaults). See
 [Across AWS accounts](multi-account.md).
