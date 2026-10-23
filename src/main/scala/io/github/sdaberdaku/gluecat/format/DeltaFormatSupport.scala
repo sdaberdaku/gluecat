@@ -98,7 +98,7 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
   }
 
   private def deltaSpec(properties: java.util.Map[String, String]): TableSpec = {
-    val spec = TableProperties.split(properties, "parquet")
+    val spec = TableProperties.split(properties, GlueCoreCatalog.defaultProvider())
     if (!isDelta(spec.provider)) {
       throw new UnsupportedOperationException("CREATE TABLE AS SELECT and REPLACE TABLE are supported for Delta tables only")
     }
@@ -134,7 +134,7 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
       properties: java.util.Map[String, String]): Table = {
     if (isPath(ident)) return onPath(delta.createTable(ident, schema, partitions, properties))
     requireHookOff(ident)
-    val spec = TableProperties.split(properties, "parquet")
+    val spec = TableProperties.split(properties, GlueCoreCatalog.defaultProvider())
     if (!isDelta(spec.provider)) return core.createTable(ident, schema, partitions, properties)
     requireSqlOnFiles()
     val location = prepareCreate(ident, spec)

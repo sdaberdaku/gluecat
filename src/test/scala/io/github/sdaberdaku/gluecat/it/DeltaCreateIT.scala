@@ -52,6 +52,19 @@ abstract class DeltaCreateIT(mode: Mode) extends SparkIT(mode) {
     assert(spark.sql(s"DESCRIBE DETAIL ${tbl("db", "t1")}").select("format").head.getString(0) == "delta")
   }
 
+  // Spark passes no provider for CREATE TABLE without USING; the catalog takes spark.sql.sources.default.
+  test("CREATE TABLE without USING follows spark.sql.sources.default") {
+    try {
+      for (provider <- Seq("json", "delta")) {
+        spark.conf.set("spark.sql.sources.default", provider)
+        val loc = tempDir()
+        spark.sql(s"CREATE TABLE ${tbl("db", s"d_$provider")} (id INT) LOCATION '$loc'")
+        assert(glue.getTable("db", s"d_$provider").parameters().get("spark.sql.sources.provider") == provider)
+        assert(hasDeltaLog(loc) == (provider == "delta"))
+      }
+    } finally spark.conf.unset("spark.sql.sources.default")
+  }
+
   test("CTAS by name") {
     val loc = tempDir()
     spark.sql(s"CREATE TABLE ${tbl("db", "t2")} USING delta LOCATION '$loc' AS SELECT 1 AS id, 'a' AS name")

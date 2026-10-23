@@ -202,6 +202,8 @@ changes) are covered by unit tests. More detail:
 
 Path-based Delta operations (`` delta.`s3://...` ``) involve no catalog and work as before.
 
+`CREATE TABLE` without `USING` takes the provider from `spark.sql.sources.default` (`parquet` unless set).
+
 Databases: `CREATE DATABASE` (comment, location, properties; without a location and with `warehouse` set, the database
 is placed at `<warehouse>/<db>.db`, because Spark's Hive path cannot create tables in a database without one),
 `ALTER DATABASE`, `DROP DATABASE` (with `CASCADE`, Glue's `DeleteDatabase` removes the database's table entries; table

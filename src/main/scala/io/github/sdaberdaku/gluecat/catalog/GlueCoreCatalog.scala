@@ -180,7 +180,7 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
   override def createTable(ident: Identifier, schema: StructType, partitions: Array[Transform],
       properties: java.util.Map[String, String]): Table = {
     val n = normalize(ident)
-    val spec = TableProperties.split(properties, "parquet")
+    val spec = TableProperties.split(properties, GlueCoreCatalog.defaultProvider())
     if (!isDelta(spec.provider)) GlueCoreCatalog.requireStatsAutoUpdateOff() // before the entry exists
     spec.properties.keys.foreach(rejectOwnedKey)
     val location = resolveLocation(n, spec)
@@ -314,6 +314,9 @@ object GlueCoreCatalog {
   // Unit tests run without a session.
   private def sessionConf(key: String, default: String): String =
     SparkSession.getActiveSession.orElse(SparkSession.getDefaultSession).map(_.conf.get(key, default)).getOrElse(default)
+
+  /** The provider of tables created without `USING`, as Spark's session catalog takes it. */
+  def defaultProvider(): String = sessionConf("spark.sql.sources.default", "parquet")
 
   /** With the setting on, Spark's V1 insert path (InsertIntoHadoopFsRelationCommand, CommandUtils.updateTableStats)
     * reads and alters the table's statistics through spark.sessionState.catalog, which qualifies the name to
