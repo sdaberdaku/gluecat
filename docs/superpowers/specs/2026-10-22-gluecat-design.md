@@ -434,6 +434,9 @@ too:
 - `StorageDescriptor.Columns`: the table's columns at create, replace, `ALTER TABLE` column change or
   `REFRESH TABLE` time (name and Spark `catalogString` type). No `PartitionKeys`.
 - User table properties as Glue parameters.
+- Glue's limits: column comments become one line (control characters to spaces) cut to 255 UTF-8 bytes, and the
+  table description is cut to 2048 bytes; the full column comments stay in the schema JSON and a Delta table's
+  comment in its log.
 - `Retention` 0, and `Compressed` false, `NumberOfBuckets` -1, `StoredAsSubDirectories` false in the
   `StorageDescriptor`, written as Hive does (`Table.getEmptyTable`); the Glue Hive client unboxes them on read. An
   `UpdateTable` rewrites them, so bucketed legacy entries lose their bucket count, consistent with the model dropping

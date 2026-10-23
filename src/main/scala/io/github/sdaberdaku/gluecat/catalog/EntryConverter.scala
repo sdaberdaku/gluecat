@@ -1,5 +1,9 @@
 package io.github.sdaberdaku.gluecat.catalog
 
+import java.nio.{ByteBuffer, CharBuffer}
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets.UTF_8
+
 import scala.collection.JavaConverters._
 import scala.util.control.NonFatal
 
@@ -113,11 +117,12 @@ object EntryConverter {
     val serdeParams = table.storage.properties ++ Map("serialization.format" -> "1", "path" -> uri)
 
     def column(f: org.apache.spark.sql.types.StructField) =
-      GlueColumn(f.name, f.dataType.catalogString, f.getComment())
+      GlueColumn(f.name, f.dataType.catalogString, f.getComment().map(glueColumnComment))
     val (dataCols, partCols) = table.schema.fields.toSeq.partition(f => !table.partitionColumnNames.contains(f.name))
     def entry(extra: Map[String, String], storage: GlueStorage, keys: Seq[GlueColumn]) =
       GlueTableEntry(table.identifier.database.getOrElse(""), table.identifier.table, Some("EXTERNAL_TABLE"),
-        table.comment, Some(table.owner).filter(_.nonEmpty), params ++ extra, storage, keys, None)
+        table.comment.map(utf8Prefix(_, MaxDescriptionBytes)), Some(table.owner).filter(_.nonEmpty), params ++ extra,
+        storage, keys, None)
 
     val hive = HiveSerDe.sourceToSerDe(provider)
     if (provider.equalsIgnoreCase("delta")) {
@@ -132,6 +137,23 @@ object EntryConverter {
         Seq(GlueColumn("col", "array<string>", Some("from deserializer")))), partCols.map(column))
     }
   }
+
+  // Glue's limits (Column.Comment: single line, 255; Table.Description: 2048), which MiniStack does not enforce. The
+  // full column comments stay in the schema JSON, and a Delta table's comment in its log.
+  private val MaxColumnCommentBytes = 255
+  private val MaxDescriptionBytes = 2048
+
+  private def glueColumnComment(comment: String): String =
+    utf8Prefix(comment.map(c => if (c < ' ' && c != '\t') ' ' else c), MaxColumnCommentBytes)
+
+  /** The longest prefix of `s` that fits in `maxBytes` UTF-8 bytes, never splitting a code point. */
+  private def utf8Prefix(s: String, maxBytes: Int): String =
+    if (s.getBytes(UTF_8).length <= maxBytes) s
+    else {
+      val out = ByteBuffer.allocate(maxBytes)
+      UTF_8.newEncoder().onMalformedInput(CodingErrorAction.REPLACE).encode(CharBuffer.wrap(s), out, true)
+      new String(out.array, 0, out.position, UTF_8)
+    }
 
   /** Mirrors HiveExternalCatalog: false for timestamp_ntz, variant, ANSI intervals, collated strings and
    *  nested field names that need quoting, recursively. */

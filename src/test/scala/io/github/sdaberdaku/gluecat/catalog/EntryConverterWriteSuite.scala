@@ -151,6 +151,32 @@ class EntryConverterWriteSuite extends AnyFunSuite {
     assert(e.owner.contains("o"))
   }
 
+  test("a long multi-line column comment becomes one Glue line of at most 255 bytes; the schema keeps it whole") {
+    val comment = ("a" * 150) + "\n" + ("b" * 100) + "\r\n" + ("c" * 47)
+    assert(comment.length == 300)
+    val schema = new StructType().add("id", "string", nullable = true, comment).add("dt", "string", nullable = true, comment)
+    for (p <- Seq("delta", "parquet", "json")) {
+      val e = EntryConverter.toGlueTable(ct(p, schema, Seq("dt"), loc), 4000)
+      val glueComments = (e.storage.columns ++ e.partitionKeys).filter(c => Set("id", "dt")(c.name)).flatMap(_.comment)
+      assert(glueComments.nonEmpty, p)
+      glueComments.foreach { c =>
+        assert(c.getBytes("UTF-8").length == 255, p)
+        assert(!c.exists(ch => ch == '\n' || ch == '\r'), p)
+        assert(c == comment.replaceAll("[\r\n]", " ").take(255), p)
+      }
+      assert(EntryConverter.toCatalogTable("acct_a", e).schema("id").getComment().contains(comment), p)
+    }
+  }
+
+  test("a table description over 2048 bytes is cut at a character boundary") {
+    val comment = "x" + ("\u00e9" * 1500) // 3001 bytes
+    val d = EntryConverter.toGlueTable(ct("parquet", idDt, Nil, loc, comment = Some(comment)), 4000).description.get
+    assert(d.getBytes("UTF-8").length == 2047)
+    assert(comment.startsWith(d) && d.length == 1024)
+    val short = EntryConverter.toGlueTable(ct("delta", idDt, Nil, loc, comment = Some("line 1\nline 2")), 4000)
+    assert(short.description.contains("line 1\nline 2"))
+  }
+
   test("namespace conversions") {
     val md = Map("comment" -> "c", "location" -> "s3://bucket-a/db", "k" -> "v").asJava
     val db = EntryConverter.toGlueDatabase("db", md)
