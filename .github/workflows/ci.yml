@@ -48,6 +48,8 @@ jobs:
     services:
       ministack:
         image: ministackorg/ministack:1.5.31
+        env:
+          AUTH: "true"
         ports:
           - "4566:4566"
     steps:

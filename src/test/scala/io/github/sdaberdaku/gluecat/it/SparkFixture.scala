@@ -14,7 +14,9 @@ sealed trait Mode
 object Named extends Mode
 object Session extends Mode
 
-/** One local Spark session per suite, on a freshly reset MiniStack, account 111111111111. */
+/** One local Spark session per suite, on a freshly reset MiniStack, account 111111111111. Each session first ensures
+  * the role `gluecat-test` (exactly the Glue actions gluecat uses) in every catalog's account; MiniStack runs with
+  * `AUTH=true`, so a Glue action outside that list fails the suite. */
 abstract class SparkIT(mode: Mode) extends AnyFunSuite with BeforeAndAfterAll {
   val cat: String = mode match {
     case Named => "acct_a"
@@ -59,11 +61,14 @@ abstract class SparkIT(mode: Mode) extends AnyFunSuite with BeforeAndAfterAll {
       .config("spark.sql.catalogImplementation", "in-memory")
     if (mode == Named) b.config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
     (otherCatalogs + (cat -> catalogOptions)).foreach { case (name, own) =>
+      // Every catalog acts through the account's ten-action role unless its own options set the role ("" opts out).
       val shared = Map(
         "glue.id" -> "111111111111",
         "client.region" -> "eu-central-1",
         "glue.endpoint" -> MiniStack.Endpoint,
-        "warehouse" -> s"file:$root/wh/$name")
+        "warehouse" -> s"file:$root/wh/$name",
+        "client.assume-role.arn" -> IamFixture.ensureRole(own.getOrElse("glue.id", "111111111111")),
+        "client.assume-role.region" -> "eu-central-1")
       b.config(s"spark.sql.catalog.$name", classOf[TestGlueCatalog].getName)
       (shared ++ own).foreach { case (k, v) => b.config(s"spark.sql.catalog.$name.$k", v) }
     }

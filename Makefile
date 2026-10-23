@@ -19,7 +19,7 @@ package:
 	./mvnw -DskipTests -DskipITs package
 
 ministack-up:
-	docker run -d --rm --name ministack -p 4566:4566 $(MINISTACK_IMAGE)
+	docker run -d --rm --name ministack -e AUTH=true -p 4566:4566 $(MINISTACK_IMAGE)
 
 ministack-down:
 	docker rm -f ministack

@@ -20,8 +20,8 @@ object IsolationIT {
     "client.credentials-provider.secret-key" -> "test")
 }
 
-/** `acct_a` (account 111, default chain), `acct_b` (account 222 through AssumeRole) and a `spark_catalog` on account
-  * 999 in one session. */
+/** `acct_a` (account 111 through the fixture's role), `acct_b` (account 222 through a role trusting 111) and a
+  * `spark_catalog` on account 999 in one session. */
 @RunWith(classOf[JUnitRunner])
 class IsolationIT extends SparkIT(Named) {
   import IsolationIT._
@@ -29,8 +29,7 @@ class IsolationIT extends SparkIT(Named) {
   override protected def otherCatalogs: Map[String, Map[String, String]] = Map(
     "acct_b" -> Map(
       "glue.id" -> "222222222222",
-      "client.assume-role.arn" -> "arn:aws:iam::222222222222:role/glue-access",
-      "client.assume-role.region" -> "eu-central-1"),
+      "client.assume-role.arn" -> IamFixture.ensureRole("222222222222", "glue-access", trustedAccounts = Seq("111111111111"))),
     "spark_catalog" -> Account999)
 
   private val glueB = new GlueInspector("222222222222")
