@@ -32,7 +32,7 @@ jobs:
           cache: pip
           cache-dependency-path: docs/site/requirements.txt
       - run: pip install -r docs/site/requirements.txt
-      - run: mkdir -p docs/site/assets && cp docs/logo/gluecat-icon.png docs/site/assets/ && cp CHANGELOG.md docs/site/changelog.md
+      - run: mkdir -p docs/site/assets && cp docs/logo/gluecat-icon.png docs/logo/gluecat-banner.jpg docs/site/assets/ && cp CHANGELOG.md docs/site/changelog.md
       - run: mkdocs build --strict
       - uses: actions/setup-java@v6
         with:

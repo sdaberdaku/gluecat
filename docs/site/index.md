@@ -1,5 +1,7 @@
 # gluecat
 
+![gluecat: a cat curled around a Spark and Glue scene](assets/gluecat-banner.jpg){ width="100%" }
+
 AWS Glue Data Catalog client for Apache Spark.
 
 gluecat is a Spark catalog plugin, `io.github.sdaberdaku.gluecat.GlueCatalog`. Each Spark catalog configured with it

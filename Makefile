@@ -50,7 +50,7 @@ matrix:
 
 # Serves the documentation site (pip installs the pinned mkdocs into the active Python environment).
 docs:
-	mkdir -p docs/site/assets && cp docs/logo/gluecat-icon.png docs/site/assets/ && cp CHANGELOG.md docs/site/changelog.md
+	mkdir -p docs/site/assets && cp docs/logo/gluecat-icon.png docs/logo/gluecat-banner.jpg docs/site/assets/ && cp CHANGELOG.md docs/site/changelog.md
 	pip install -r docs/site/requirements.txt && mkdocs serve
 
 clean:
