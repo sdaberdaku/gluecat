@@ -20,6 +20,11 @@ import io.github.sdaberdaku.gluecat.glue.GlueFailure
 
 /** The gate: Delta creates run by path, then the Glue entry is written; nothing goes through spark_catalog. */
 abstract class DeltaCreateIT(mode: Mode) extends SparkIT(mode) {
+  // Same account as the main catalog, so its tables land in the same Glue database.
+  override protected def otherCatalogs: Map[String, Map[String, String]] = Map("acct_h" -> Map(
+    "hadoop.fs.s3a.endpoint" -> "http://127.0.0.1:1",
+    "hadoop.fs.s3a.assumed.role.arn" -> "arn:aws:iam::111111111111:role/data-a"))
+
   override def beforeAll(): Unit = {
     super.beforeAll()
     spark.sql(s"CREATE DATABASE $cat.db")
@@ -203,6 +208,19 @@ abstract class DeltaCreateIT(mode: Mode) extends SparkIT(mode) {
     assert(columns("t10") == Seq("id", "extra"))
     assert(glue.getTable("db", "t10").parameters().get("spark.sql.sources.schema").contains("extra"))
     noPathLookups()
+  }
+
+  if (mode == Named) test("the catalog's Hadoop options reach neither the Delta log nor Glue") {
+    spark.sql("CREATE TABLE acct_h.db.h1 (id INT) USING delta")
+    spark.sql("CREATE TABLE acct_h.db.h2 USING delta AS SELECT 1 AS id")
+    assert(spark.sql("SELECT * FROM acct_h.db.h2").count() == 1)
+    for (t <- Seq("h1", "h2")) {
+      val props = spark.sql(s"SHOW TBLPROPERTIES acct_h.db.$t").collect().map(_.getString(0)).toSeq
+      assert(!props.exists(_.stripPrefix("option.").startsWith("fs.")), s"$t: $props")
+      val entry = glue.getTable("db", t)
+      val keys = entry.parameters().asScala.keys ++ entry.storageDescriptor().serdeInfo().parameters().asScala.keys
+      assert(!keys.exists(_.startsWith("fs.")), s"$t: $keys")
+    }
   }
 
   test("ALTER TABLE ADD COLUMNS re-syncs the Glue columns") {
