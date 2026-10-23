@@ -40,8 +40,8 @@ jobs:
           MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-      - uses: softprops/action-gh-release@v3
-        with:
-          # The main jars only, not the -sources and -javadoc jars.
-          files: modules/*/target/gluecat-spark-*-${{ env.VERSION }}.jar
-          generate_release_notes: true
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # The main jars only, not the -sources and -javadoc jars.
+        run: gh release create "$GITHUB_REF_NAME" modules/*/target/gluecat-spark-*-"$VERSION".jar --generate-notes

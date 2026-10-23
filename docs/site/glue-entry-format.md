@@ -24,7 +24,10 @@ Spark's Hive-client path read, with two additions for Delta so that Athena's Del
   Hive-compatible form (real SerDe, input and output formats, columns and location, for providers such as Parquet and
   ORC) and the Spark-specific form with the placeholder location.
 - `StorageDescriptor.Columns`: the table's columns (name and Spark `catalogString` type) at create, replace,
-  `ALTER TABLE` column change or `REFRESH TABLE` time. No `PartitionKeys`.
+  `ALTER TABLE` column change or `REFRESH TABLE` time. Delta entries have no `PartitionKeys`. Other providers in the
+  Hive-compatible form carry the data columns in `Columns` and the partition columns in `PartitionKeys`; in the
+  Spark-specific form `Columns` is the single column `col array<string>` ("from deserializer") and `PartitionKeys`
+  holds the partition columns.
 - User table properties as Glue parameters.
 - Glue column comments on one line (control characters become spaces) and cut to 255 UTF-8 bytes, and the table
   description cut to 2048 bytes, Glue's limits; the full column comments stay in the schema JSON, and a Delta

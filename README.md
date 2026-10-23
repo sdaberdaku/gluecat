@@ -17,7 +17,7 @@ Documentation: <https://sdaberdaku.github.io/gluecat/>
 gluecat is a Spark catalog plugin, `io.github.sdaberdaku.gluecat.GlueCatalog`. Each Spark catalog configured with it
 talks to one Glue Data Catalog, with its own catalog ID and its own credentials or IAM role. It loads, creates and
 alters Delta tables there, reads other data source tables, and manages Glue databases. It works as a named catalog
-and as `spark_catalog`. It does not use the Hive metastore client, needs no patched Spark or Hive jars, and uses the
+and as `spark_catalog`. The supported API is the class `io.github.sdaberdaku.gluecat.GlueCatalog`, its configuration keys, the Glue entry format and the exception classes; other public classes are internals that may change between minor versions. It does not use the Hive metastore client, needs no patched Spark or Hive jars, and uses the
 AWS SDK for Java v2.
 
 ## Why

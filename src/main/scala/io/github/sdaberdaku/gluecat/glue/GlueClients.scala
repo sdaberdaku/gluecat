@@ -24,11 +24,13 @@ import io.github.sdaberdaku.gluecat.GlueCatalogOptions
 object GlueClients {
   private val log = LoggerFactory.getLogger(getClass)
 
+  private val overrides = ClientOverrideConfiguration.builder().retryPolicy(RetryMode.STANDARD).build()
+
   def build(options: GlueCatalogOptions): GlueClient = {
     val shared = httpClient(options) // one instance for the Glue and the STS client
     val b = GlueClient.builder()
       .credentialsProvider(credentialsProvider(options, shared))
-      .overrideConfiguration(ClientOverrideConfiguration.builder().retryPolicy(RetryMode.STANDARD).build())
+      .overrideConfiguration(overrides)
     options.region.foreach(r => b.region(Region.of(r)))
     options.endpoint.foreach(e => b.endpointOverride(URI.create(e)))
     shared.foreach(b.httpClient)
@@ -140,7 +142,7 @@ object GlueClients {
   }
 
   private def assumeRole(arn: String, options: GlueCatalogOptions, http: Option[SdkHttpClient]): AwsCredentialsProvider = {
-    val sts = StsClient.builder().credentialsProvider(defaultChain())
+    val sts = StsClient.builder().credentialsProvider(defaultChain()).overrideConfiguration(overrides)
     http.foreach(sts.httpClient)
     options.assumeRoleRegion.orElse(options.region).foreach(r => sts.region(Region.of(r)))
     val req = AssumeRoleRequest.builder().roleArn(arn).roleSessionName(options.assumeRoleSessionName)
