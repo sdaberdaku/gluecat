@@ -55,7 +55,7 @@ convention.
 
 The catalog loads, in addition to its own entries:
 
-- an entry written by Spark 3.5's Hive path for a Delta CTAS: columns `col array<string>`,
+- an entry written by Spark's Hive path (3.5 and 4.1) for a Delta CTAS: columns `col array<string>`,
   `spark.sql.sources.schema = {"type":"struct","fields":[]}`, `spark.sql.partitionProvider = catalog`;
 - an entry whose columns and properties Delta rewrote after a `REPLACE` or overwrite: real columns plus
   `delta.lastUpdateVersion`, `delta.lastCommitTimestamp`, `delta.minReaderVersion`, `delta.minWriterVersion`;
@@ -75,7 +75,7 @@ modes; see [Development](development.md)):
 - **Trino 484** reads gluecat Delta tables by name (rows, `SHOW TABLES`, `DESCRIBE`, rows added later, a partitioned
   CTAS), and gluecat reads a Delta table Trino created. In the tests Trino uses its native local file system, so
   Trino cannot `INSERT` there; Trino's own Delta entry has `spark.sql.sources.provider = DELTA` (upper case).
-- **Spark 3.5 with the Glue Hive client** (legacy; Spark 3.5.1, Delta 3.2.0) and gluecat read each other's tables in
+- **Spark 4.1 with the Glue Hive client** (legacy; Spark 4.1.3, Delta 4.4.1) and gluecat read each other's tables in
   both directions. The legacy client creates a Delta CTAS entry of the same shape as the one in the read variants
   above. The legacy Hive path puts a table's placeholder under its database location, so it cannot create Delta
   tables in a database that has no location; `CREATE DATABASE` without `LOCATION` in gluecat (and no `warehouse`)

@@ -63,7 +63,7 @@ jobs:
           DELTA_ARTIFACT: ${{ matrix.deltaArtifact }}
         run: ./mvnw -B -ntp -pl modules/${{ matrix.module }} -Dspark.version=${{ matrix.spark }} -Ddelta.version=${{ matrix.delta }} ${DELTA_ARTIFACT:+-Ddelta.artifact=$DELTA_ARTIFACT} verify
 
-  # Trino and Spark 3.5 with the Glue Hive client read gluecat's Glue entries, and gluecat reads theirs, on the
+  # Trino and Spark 4.1 with the Glue Hive client read gluecat's Glue entries, and gluecat reads theirs, on the
   # containers of docker/docker-compose.yml.
   compat:
     needs: plan

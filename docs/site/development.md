@@ -24,7 +24,7 @@ make test            # unit tests of one module (MODULE=spark-4.1_2.13 by defaul
 make verify          # unit tests, the jar, and integration tests against the jar
 make package         # every module's jar
 make matrix          # full CI matrix on GitHub Actions for the current branch
-make compat-up       # MiniStack, Trino and Spark 3.5 with the Glue Hive client (replaces ministack-up's)
+make compat-up       # MiniStack, Trino and Spark 4.1 with the Glue Hive client (replaces ministack-up's)
 make compat          # Trino and that Spark read gluecat's tables, and gluecat reads theirs
 make compat-down     # stops them and empties /tmp/gluecat-compat; make ministack-up brings back the emulator
 make docs            # serve this site locally with mkdocs
@@ -41,8 +41,8 @@ Unit tests are `*Suite` classes (surefire, run against `target/classes`); integr
 
 ## Compatibility containers
 
-`docker/docker-compose.yml` starts MiniStack, Trino 484 and a legacy Spark 3.5 (Spark 3.5.1 with the Glue Hive
-client and Delta 3.2.0) for the `TrinoCompat*IT` and `LegacyHiveGlueCompat*IT` suites. `make compat-up` creates
+`docker/docker-compose.yml` starts MiniStack, Trino 484 and a legacy Spark 4.1 (Spark 4.1.3 with the Glue Hive
+client for Spark 4; Delta 4.4.1 is downloaded on its first run) for the `TrinoCompat*IT` and `LegacyHiveGlueCompat*IT` suites. `make compat-up` creates
 `/tmp/gluecat-compat` (mode 0777), where the tests write table data that both readers see at the same path, and
 starts the stack; `make compat` runs the suites; `make compat-down` stops it. Without the `TRINO_URL` and
 `LEGACY_SPARK_CONTAINER` environment variables the suites are skipped.

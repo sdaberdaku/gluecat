@@ -20,10 +20,11 @@ services:
       - ./trino/etc:/etc/trino:ro
       - /tmp/gluecat-compat:/tmp/gluecat-compat
 
-  # Spark 3.5.1 with the patched Hive and the Glue Hive client (fork tag v3.5.1 of
-  # aws-glue-data-catalog-client-for-apache-hive-metastore) and delta-spark 3.2.0; runs as uid 185.
+  # Spark 4.1.3 (Scala 2.13, Java 21) with the Glue Hive client for Spark 4; the image has no Delta jar, so
+  # spark-defaults.conf adds delta-spark 4.4.1 through spark.jars.packages (downloaded on the first spark-sql run into
+  # /tmp/gluecat-compat/ivy). Runs as uid 185.
   legacy-spark:
-    image: ghcr.io/sdaberdaku/spark-glue-python:v3.5.1-python3.10.14
+    image: ghcr.io/sdaberdaku/spark-with-glue:4.1.3-scala2.13-java21-python3-ubuntu
     container_name: legacy-spark
     # The Glue client reaches MiniStack through glue-defaults-proxy.py. With an endpoint set it signs with the region
     # SDK v1 finds in the host name (glue.<region>.*), and MiniStack keeps Glue state per region: this name puts its
