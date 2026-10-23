@@ -65,8 +65,8 @@ reads other data-source tables, without the Hive metastore client. Works as a na
 ## Standing consent (owner, 2026-10-22)
 
 - Push feature branches and open pull requests without asking; merge a pull request into `main` without asking once
-  `ci-ok` is green (`main` is protected: pull requests only, `ci-ok` required, branch up to date, no force pushes,
-  administrators included).
+  `ci-ok` is green (`main` is protected: pull requests only, `ci-ok` required, branch up to date, linear history,
+  no force pushes except by the owner, administrators included; merge by rebase or squash, never a merge commit).
 - Commit and push README, CHANGELOG and docs without showing a draft first (this overrides the "show drafts" rule
   above).
 - Run GitHub Actions (`gh workflow run`), start and stop local Docker containers, and rewrite unpublished branch
