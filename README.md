@@ -58,10 +58,12 @@ gluecat needs the AWS SDK v2 modules `glue` and `sts` on the Spark classpath; th
 - Spark 4.x: when `hadoop-aws` (S3A) is on the classpath, the `software.amazon.awssdk:bundle` it depends on already
   contains both. Otherwise add them as for Spark 3.5.
 
-Example for Spark 4.1 with Delta 4.4.1, without `hadoop-aws`:
+Example for Spark 4.1 with Delta 4.4.1 and S3A: `hadoop-aws` (the version of Spark's Hadoop, 3.4.2 for Spark 4.1.3)
+brings the SDK bundle, and mapping `s3://` to S3A keeps the table locations in Glue as `s3://`, the form Athena reads:
 
 ```
-spark-sql --packages io.github.sdaberdaku:gluecat-spark-4.1_2.13:1.0.0,io.delta:delta-spark_4.1_2.13:4.4.1,software.amazon.awssdk:glue:2.24.6,software.amazon.awssdk:sts:2.24.6
+spark-sql --packages io.github.sdaberdaku:gluecat-spark-4.1_2.13:1.0.0,io.delta:delta-spark_4.1_2.13:4.4.1,org.apache.hadoop:hadoop-aws:3.4.2 \
+  --conf spark.hadoop.fs.s3.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
 ```
 
 ### As named catalogs
@@ -92,6 +94,7 @@ The first two lines are Delta's usual session configuration; Delta's SQL command
 CREATE DATABASE acct_a.db LOCATION 's3://bucket-a/warehouse/db.db';
 CREATE TABLE acct_a.db.events (id BIGINT, kind STRING) USING delta;
 INSERT INTO acct_a.db.events VALUES (1, 'a');
+CREATE DATABASE acct_b.db;
 CREATE TABLE acct_b.db.events USING delta LOCATION 's3://bucket-b/db/events' AS SELECT * FROM acct_a.db.events;
 ```
 
@@ -273,6 +276,10 @@ The full list: [limitations](https://sdaberdaku.github.io/gluecat/limitations/).
   CloudTrail, possibly as access denied.
 - Delta 4.1.0 and 4.2.0 fail every `ALTER TABLE` on a Delta table on Spark 4.1.2 and later
   (`NoClassDefFoundError: IgnoreCachedData`), with or without gluecat. Use Delta 4.3.1 or later there (the versions CI tests).
+- On Spark 4.x, `spark.catalog.listTables` fails with the catalog's `UnsupportedTableException` when the database
+  holds an entry the catalog cannot load (an Iceberg table, a Hive SerDe table without `spark.sql.sources.provider`):
+  it loads every table it lists and tolerates only Spark's own error conditions. `SHOW TABLES` lists such entries,
+  and so does `spark.catalog.listTables` on Spark 3.5.
 - STS: see the notes under Credentials (regional public endpoint, `AWS_ENDPOINT_URL` ignored by SDK 2.24.6, private
   DNS for VPC endpoints).
 - Tested against MiniStack (a local AWS emulator) only: IAM policies, Glue resource policies and cross-account

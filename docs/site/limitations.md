@@ -46,6 +46,10 @@
   CloudTrail, possibly as access denied.
 - Delta 4.1.0 and 4.2.0 fail every `ALTER TABLE` on a Delta table on Spark 4.1.2 and later
   (`NoClassDefFoundError: IgnoreCachedData`), with or without gluecat. Use Delta 4.3.1 or later there (the versions CI tests).
+- On Spark 4.x, `spark.catalog.listTables` fails with the catalog's `UnsupportedTableException` when the database
+  holds an entry the catalog cannot load (an Iceberg table, a Hive SerDe table without `spark.sql.sources.provider`):
+  it loads every table it lists and tolerates only Spark's own error conditions. `SHOW TABLES` lists such entries,
+  and so does `spark.catalog.listTables` on Spark 3.5.
 - STS: see the notes under [Credentials](configuration.md#credentials) (regional public endpoint, `AWS_ENDPOINT_URL` ignored by SDK 2.24.6, private
   DNS for VPC endpoints).
 - Tested against MiniStack (a local AWS emulator) only: IAM policies, Glue resource policies and cross-account

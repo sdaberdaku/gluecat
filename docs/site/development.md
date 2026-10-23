@@ -9,8 +9,9 @@ JDK 17 or later builds every module (CI builds the Scaladoc on JDK 17; only the 
   versions as properties; CI overrides them per matrix row.
 - `matrix.json` is the single source of the Spark x Delta x JDK test matrix. Pushes to `main` run every row; pull
   requests run the smoke rows.
-- The AWS SDK v2 is relocated inside the shaded jar under `io.github.sdaberdaku.gluecat.shaded.awssdk`; the
-  published POM declares no SDK dependency.
+- The AWS SDK v2 modules `glue` and `sts` are `provided` dependencies: the jar contains no SDK classes, and the
+  published POM (the module's own `pom.xml`) lists them as `provided` and nothing from the SDK at compile or runtime
+  scope (`PackagingIT` and `PublishedPomSuite` check both).
 
 ## Make targets
 
@@ -32,7 +33,7 @@ Other Spark lines: `make verify MODULE=spark-3.5_2.12`; override versions with `
 ## Tests
 
 Unit tests are `*Suite` classes (surefire, run against `target/classes`); integration tests are `*IT` classes
-(failsafe, run against the shaded jar) and use MiniStack, a local AWS emulator for Glue, STS and IAM
+(failsafe, run against the module's jar) and use MiniStack, a local AWS emulator for Glue, STS and IAM
 (`ministackorg/ministack`, version pinned in the `Makefile` and `ci.yml`). Real AWS is never used.
 
 ## Compatibility containers
