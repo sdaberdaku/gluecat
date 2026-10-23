@@ -12,23 +12,29 @@ import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.iam.IamClient
 import software.amazon.awssdk.services.iam.model.CreateRoleRequest
 
-import io.github.sdaberdaku.gluecat.glue.StaticKeyCredentialsProvider
+import io.github.sdaberdaku.gluecat.glue.{GlueAccessDenied, StaticKeyCredentialsProvider}
 
-/** The three credential routes, each landing in its own MiniStack account (MiniStack keys state by access key id and
-  * maps STS sessions to the role's account). `acct_a` uses the default chain with the system properties (111). */
+/** The credential routes, each landing in its own MiniStack account (MiniStack keys state by access key id and maps
+  * STS sessions to the role's account). `acct_root` opts out of the fixture's role and uses the default chain with the
+  * system properties, the root key of 111. */
 @RunWith(classOf[JUnitRunner])
 class CredentialsIT extends SparkIT(Named) {
   override protected def otherCatalogs: Map[String, Map[String, String]] = Map(
+    "acct_root" -> Map("client.assume-role.arn" -> ""),
     "acct_b" -> Map(
       "glue.id" -> "222222222222",
-      "client.assume-role.arn" -> "arn:aws:iam::222222222222:role/glue-access",
-      "client.assume-role.region" -> "eu-central-1"),
+      "client.assume-role.arn" -> IamFixture.ensureRole("222222222222", "glue-access", trustedAccounts = Seq("111111111111"))),
     "acct_c" -> Map(
       "glue.id" -> "333333333333",
       "client.credentials-provider" -> classOf[StaticKeyCredentialsProvider].getName,
       "client.credentials-provider.access-key" -> "333333333333",
       "client.credentials-provider.secret-key" -> "test"),
-    "acct_irsa" -> Map("glue.id" -> "222222222222"))
+    "acct_irsa" -> Map("glue.id" -> "222222222222", "client.assume-role.arn" -> ""),
+    "acct_ro" -> Map("client.assume-role.arn" -> IamFixture.ensureRole("111111111111", "glue-ro",
+      actions = Seq("glue:GetDatabase", "glue:GetDatabases", "glue:GetTable", "glue:GetTables"))),
+    "acct_closed" -> Map(
+      "glue.id" -> "222222222222",
+      "client.assume-role.arn" -> IamFixture.ensureRole("222222222222", "glue-closed", trustedAccounts = Seq("222222222222"))))
 
   private val glueB = new GlueInspector("222222222222")
   private val glueC = new GlueInspector("333333333333")
@@ -40,14 +46,17 @@ class CredentialsIT extends SparkIT(Named) {
   private def databases(catalog: String): Seq[String] =
     spark.sql(s"SHOW DATABASES IN $catalog").collect().map(_.getString(0)).toList
 
+  /** The 1.0.0 error translation: the cause chain holds gluecat's access-denied error. */
+  private def deniedByGlue(e: Throwable): Boolean =
+    Iterator.iterate(e)(_.getCause).takeWhile(_ != null).exists(_.isInstanceOf[GlueAccessDenied])
+
   test("default chain") {
-    spark.sql("CREATE DATABASE acct_a.db_a")
-    assert(databases("acct_a").contains("db_a"))
+    spark.sql("CREATE DATABASE acct_root.db_a")
+    assert(databases("acct_root").contains("db_a"))
     assert(glue.listDatabaseNames().contains("db_a"))
   }
 
   test("assume role") {
-    // MiniStack (AUTH off) needs no IAM role for AssumeRole.
     spark.sql("CREATE DATABASE acct_b.db_b")
     assert(glueB.listDatabaseNames().contains("db_b"))
     assert(!glue.listDatabaseNames().contains("db_b"))
@@ -59,6 +68,19 @@ class CredentialsIT extends SparkIT(Named) {
     assert(!glue.listDatabaseNames().contains("db_c"))
   }
 
+  test("a read-only role lists but cannot create") {
+    assert(databases("acct_ro").sorted == glue.listDatabaseNames().sorted) // the call itself succeeds
+    val e = intercept[Exception](spark.sql("CREATE DATABASE acct_ro.db_ro"))
+    assert(fullMessage(e).contains("glue:CreateDatabase") && fullMessage(e).contains("acct_ro") && deniedByGlue(e))
+    assert(!glue.listDatabaseNames().contains("db_ro"))
+  }
+
+  test("a role that does not trust the caller fails on the first statement, naming the role") {
+    val e = intercept[Exception](spark.sql("SHOW DATABASES IN acct_closed"))
+    assert(fullMessage(e).contains("role arn:aws:iam::222222222222:role/glue-closed") &&
+      fullMessage(e).contains("acct_closed") && deniedByGlue(e))
+  }
+
   test("IRSA-style web identity") {
     // Environment keys come before web identity in the default chain.
     assume(sys.env.get("AWS_ACCESS_KEY_ID").isEmpty)
@@ -67,6 +89,7 @@ class CredentialsIT extends SparkIT(Named) {
     try iam.createRole(CreateRoleRequest.builder().roleName("glue-irsa").assumeRolePolicyDocument(
       """{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Federated":"arn:aws:iam::222222222222:oidc-provider/oidc.example.com/id/TEST"},"Action":"sts:AssumeRoleWithWebIdentity"}]}""").build())
     finally iam.close()
+    IamFixture.ensureRole("222222222222", "glue-irsa") // keeps the web identity trust, adds the Glue policy
     glueB.createDatabase("db_irsa")
 
     val b64 = Base64.getUrlEncoder.withoutPadding()
