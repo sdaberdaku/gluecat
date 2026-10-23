@@ -39,7 +39,7 @@ jobs:
           distribution: temurin
           java-version: 17
           cache: maven
-      - run: ./mvnw -B -ntp -q -pl modules/spark-4.1_2.13 -DskipTests scala:doc
+      - run: ./mvnw -B -ntp -q -pl modules/spark-4.1_2.13 -DskipTests generate-sources scala:doc
       - run: mkdir -p site/api && cp -r modules/spark-4.1_2.13/target/site/scaladocs/. site/api/
       - uses: actions/upload-pages-artifact@v3
         with:
