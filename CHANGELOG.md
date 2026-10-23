@@ -18,5 +18,11 @@ First release.
 - Every Glue `UpdateTable` passes the `VersionId` it read; a concurrent change fails with a retryable error.
 - The catalog refuses to run while Delta's `UpdateCatalog` hook is enabled, because the hook writes through
   `spark_catalog`.
+- Non-Delta tables are refused by name while `spark.sql.statistics.size.autoUpdate.enabled` is on, because Spark's
+  V1 insert path then updates statistics through `spark_catalog`.
+- Non-Delta tables: partition columns are moved to the end of the schema on load, as Spark's Hive path does; dropping
+  or renaming a partition column and `ADD COLUMN ... DEFAULT` are refused.
+- Glue column comments are written single-line and cut to 255 bytes, table descriptions to 2048 bytes (Glue's
+  limits); the schema JSON and the Delta log keep the full text.
 - AWS SDK for Java v2 (`glue`, `sts`) as a `provided` dependency, built and tested against 2.24.6. Assume-role
   sessions refresh on the calling thread: Spark never closes catalog plugins, so no background refresh is started.
