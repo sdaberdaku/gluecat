@@ -13,7 +13,7 @@ Example for Spark 4.1 with Delta 4.4.1 and S3A: `hadoop-aws` (the version of Spa
 brings the SDK bundle, and mapping `s3://` to S3A keeps the table locations in Glue as `s3://`, the form Athena reads:
 
 ```
-spark-sql --packages io.github.sdaberdaku:gluecat-spark-4.1_2.13:1.0.0,io.delta:delta-spark_4.1_2.13:4.4.1,org.apache.hadoop:hadoop-aws:3.4.2 \
+spark-sql --packages io.github.sdaberdaku:gluecat-spark-4.1_2.13:1.1.0,io.delta:delta-spark_4.1_2.13:4.4.1,org.apache.hadoop:hadoop-aws:3.4.2 \
   --conf spark.hadoop.fs.s3.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
 ```
 
@@ -30,6 +30,8 @@ spark.sql.catalog.acct_a.glue.id                         = 111111111111
 spark.sql.catalog.acct_a.client.region                   = eu-central-1
 spark.sql.catalog.acct_a.client.assume-role.arn          = arn:aws:iam::111111111111:role/glue-access
 # optional
+spark.sql.catalog.acct_a.http-client.type                = urlconnection
+spark.sql.catalog.acct_a.hadoop.fs.s3a.connection.maximum = 100
 spark.sql.catalog.acct_a.warehouse                       = s3://bucket-a/warehouse
 
 spark.sql.catalog.acct_b                                 = io.github.sdaberdaku.gluecat.GlueCatalog
@@ -50,6 +52,11 @@ CREATE TABLE acct_b.db.events USING delta LOCATION 's3://bucket-b/db/events' AS 
 ```
 
 A catalog never calls any Glue catalog other than its own `glue.id`.
+
+S3 access follows the catalog role: with `client.assume-role.arn`, S3A assumes the same role for the files of the
+catalog's tables, so the session needs no per-bucket S3A settings. `hadoop.<key>` options override that per catalog.
+`http-client.type = urlconnection` needs `software.amazon.awssdk:url-connection-client` on the classpath. For several
+accounts and regions, roles, trust policies and troubleshooting, see [Across AWS accounts](multi-account.md).
 
 ## As `spark_catalog`
 
