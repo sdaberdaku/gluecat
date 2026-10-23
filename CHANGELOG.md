@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.1.0 - unreleased
+## 1.1.0 - 2026-10-24
 
 - Per-catalog Hadoop options: `spark.sql.catalog.<name>.hadoop.<key>` applies to every table the catalog loads,
   creates or replaces. Nothing is written to Glue or the Delta log. Only `fs.*` and `dfs.*` keys reach Delta.
