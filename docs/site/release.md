@@ -16,10 +16,3 @@ design change first.
 The site is deployed by `pages.yml` on pushes to `main` that touch the documentation files, or by running the
 workflow manually (`workflow_dispatch`). It is not deployed from the tag: the `github-pages` environment only accepts
 the default branch.
-
-## Owner steps
-
-- The repository is public.
-- Settings -> Pages -> Source is "GitHub Actions".
-- Repository secrets for Maven Central and signing: `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`, `MAVEN_CENTRAL_USERNAME`,
-  `MAVEN_CENTRAL_PASSWORD`.
