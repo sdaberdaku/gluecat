@@ -49,6 +49,9 @@ abstract class SparkIT(mode: Mode) extends AnyFunSuite with BeforeAndAfterAll {
     * `spark_catalog` entry here replaces the Named mode's DeltaCatalog. */
   protected def otherCatalogs: Map[String, Map[String, String]] = Map.empty
 
+  /** More Spark configuration for every session (e.g. `spark.hadoop.*`). */
+  protected def sessionConf: Map[String, String] = Map.empty
+
   /** Stops the current session and starts one with `catalogOptions` added to the catalog's options. */
   protected def startSession(catalogOptions: Map[String, String] = Map.empty): Unit = {
     stopSession()
@@ -61,6 +64,7 @@ abstract class SparkIT(mode: Mode) extends AnyFunSuite with BeforeAndAfterAll {
       .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
       .config("spark.sql.warehouse.dir", s"$root/spark-warehouse")
       .config("spark.sql.catalogImplementation", "in-memory")
+    sessionConf.foreach { case (k, v) => b.config(k, v) }
     if (mode == Named) b.config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
     (otherCatalogs + (cat -> catalogOptions)).foreach { case (name, own) =>
       // Every catalog acts through the account's ten-action role unless its own options set the role ("" opts out).
