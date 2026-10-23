@@ -9,7 +9,7 @@ import org.scalatestplus.junit.JUnitRunner
 import io.github.sdaberdaku.gluecat.catalog.Fixtures
 import io.github.sdaberdaku.gluecat.glue.GlueColumn
 
-/** Spark 3.5 on its Hive path with the Glue Hive client (the legacy-spark container) and gluecat read each other's
+/** Spark 4.1 on its Hive path with the Glue Hive client (the legacy-spark container) and gluecat read each other's
   * tables in the same MiniStack store. Needs the containers in docker/docker-compose.yml and LEGACY_SPARK_CONTAINER;
   * without it every test is cancelled. */
 abstract class LegacyHiveGlueCompatIT(mode: Mode) extends SparkIT(mode) {
@@ -25,7 +25,7 @@ abstract class LegacyHiveGlueCompatIT(mode: Mode) extends SparkIT(mode) {
   private def legacy(sql: String): Seq[String] = {
     val out = new StringBuilder
     val err = new StringBuilder
-    val exit = Process(Seq("docker", "exec", container.get, "timeout", "600", "spark-sql", "-S", "-e", sql))
+    val exit = Process(Seq("docker", "exec", container.get, "timeout", "600", "/opt/spark/bin/spark-sql", "-S", "-e", sql))
       .!(ProcessLogger(l => out.append(l).append('\n'), l => err.append(l).append('\n')))
     assert(exit == 0, s"legacy spark-sql exited with $exit on: $sql\n$err$out")
     out.toString.split('\n').filter(_.nonEmpty).toList
@@ -76,7 +76,7 @@ abstract class LegacyHiveGlueCompatIT(mode: Mode) extends SparkIT(mode) {
   // The fixture models this entry from a production copy; here the real producer writes it.
   test("the legacy Delta CTAS entry has the fixture's shape") {
     val dir = needsLegacy()
-    val fixture = Fixtures.table("delta-spark35-ctas")
+    val fixture = Fixtures.table("delta-spark41-ctas")
     val entry = glue.getTable("db", "legacy")
     val sd = entry.storageDescriptor()
     val params = entry.parameters().asScala.toMap
