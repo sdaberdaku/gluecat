@@ -7,8 +7,8 @@ import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.iam.IamClient
 import software.amazon.awssdk.services.iam.model._
 
-/** IAM roles and users in MiniStack (`AUTH=true`), created with the account's root key. Idempotent: an existing role
-  * or user is kept and its inline policy `glue` is put again. */
+/** IAM roles in MiniStack (`AUTH=true`), created with the account's root key. Idempotent: an existing role is kept
+  * and its inline policy `glue` is put again. */
 object IamFixture {
   /** The Glue actions gluecat calls, exactly. */
   val GlueActions: Seq[String] = Seq(
@@ -30,15 +30,6 @@ object IamFixture {
     iam.putRolePolicy(PutRolePolicyRequest.builder().roleName(roleName).policyName("glue")
       .policyDocument(gluePolicy(actions)).build())
     s"arn:aws:iam::$account:role/$roleName"
-  }
-
-  /** A user in `account` with `actions` as its inline policy, and a new access key (id, secret) for it. */
-  def ensureUser(account: String, userName: String, actions: Seq[String]): (String, String) = withIam(account) { iam =>
-    ignoreExisting(iam.createUser(CreateUserRequest.builder().userName(userName).build()))
-    iam.putUserPolicy(PutUserPolicyRequest.builder().userName(userName).policyName("glue")
-      .policyDocument(gluePolicy(actions)).build())
-    val key = iam.createAccessKey(CreateAccessKeyRequest.builder().userName(userName).build()).accessKey()
-    (key.accessKeyId(), key.secretAccessKey())
   }
 
   private def quoted(values: Seq[String]): String = values.map("\"" + _ + "\"").mkString(",")

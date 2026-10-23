@@ -5,6 +5,9 @@ import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 import java.util.Base64
 
+import scala.collection.JavaConverters._
+
+import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.junit.runner.RunWith
 import org.scalatestplus.junit.JUnitRunner
 import software.amazon.awssdk.auth.credentials.{AwsBasicCredentials, StaticCredentialsProvider}
@@ -28,7 +31,8 @@ class CredentialsIT extends SparkIT(Named) {
       "glue.id" -> "333333333333",
       "client.credentials-provider" -> classOf[StaticKeyCredentialsProvider].getName,
       "client.credentials-provider.access-key" -> "333333333333",
-      "client.credentials-provider.secret-key" -> "test"),
+      "client.credentials-provider.secret-key" -> "test",
+      "client.assume-role.arn" -> ""),
     "acct_irsa" -> Map("glue.id" -> "222222222222", "client.assume-role.arn" -> ""),
     "acct_ro" -> Map("client.assume-role.arn" -> IamFixture.ensureRole("111111111111", "glue-ro",
       actions = Seq("glue:GetDatabase", "glue:GetDatabases", "glue:GetTable", "glue:GetTables"))),
@@ -46,9 +50,11 @@ class CredentialsIT extends SparkIT(Named) {
   private def databases(catalog: String): Seq[String] =
     spark.sql(s"SHOW DATABASES IN $catalog").collect().map(_.getString(0)).toList
 
-  /** The 1.0.0 error translation: the cause chain holds gluecat's access-denied error. */
-  private def deniedByGlue(e: Throwable): Boolean =
-    Iterator.iterate(e)(_.getCause).takeWhile(_ != null).exists(_.isInstanceOf[GlueAccessDenied])
+  /** The 1.0.0 error translation: the message of gluecat's "Catalog <name> (glue.id=...): access denied" error, the
+    * one wrapping a `GlueAccessDenied`. */
+  private def accessDenied(e: Throwable): String =
+    causes(e).find(_.getCause.isInstanceOf[GlueAccessDenied]).map(_.getMessage)
+      .getOrElse(fail(s"no GlueAccessDenied in: ${fullMessage(e)}"))
 
   test("default chain") {
     spark.sql("CREATE DATABASE acct_root.db_a")
@@ -70,15 +76,21 @@ class CredentialsIT extends SparkIT(Named) {
 
   test("a read-only role lists but cannot create") {
     assert(databases("acct_ro").sorted == glue.listDatabaseNames().sorted) // the call itself succeeds
-    val e = intercept[Exception](spark.sql("CREATE DATABASE acct_ro.db_ro"))
-    assert(fullMessage(e).contains("glue:CreateDatabase") && fullMessage(e).contains("acct_ro") && deniedByGlue(e))
+    val denied = accessDenied(intercept[Exception](spark.sql("CREATE DATABASE acct_ro.db_ro")))
+    assert(denied.contains("Catalog acct_ro (glue.id=111111111111): access denied") &&
+      denied.contains("glue:CreateDatabase"))
     assert(!glue.listDatabaseNames().contains("db_ro"))
   }
 
-  test("a role that does not trust the caller fails on the first statement, naming the role") {
-    val e = intercept[Exception](spark.sql("SHOW DATABASES IN acct_closed"))
-    assert(fullMessage(e).contains("role arn:aws:iam::222222222222:role/glue-closed") &&
-      fullMessage(e).contains("acct_closed") && deniedByGlue(e))
+  test("a role that does not trust the caller fails on the first call, not at initialize, naming catalog and role") {
+    // The session's options for acct_closed; Spark would only initialize the catalog on its first reference.
+    val prefix = "spark.sql.catalog.acct_closed."
+    val options = spark.conf.getAll.collect { case (k, v) if k.startsWith(prefix) => k.stripPrefix(prefix) -> v }
+    val catalog = new TestGlueCatalog
+    catalog.initialize("acct_closed", new CaseInsensitiveStringMap(options.asJava)) // no AWS call, so no error
+    val denied = accessDenied(intercept[Exception](catalog.listNamespaces()))
+    assert(denied.contains("Catalog acct_closed (glue.id=222222222222): access denied") &&
+      denied.contains("role arn:aws:iam::222222222222:role/glue-closed"))
   }
 
   test("IRSA-style web identity") {

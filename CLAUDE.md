@@ -27,7 +27,7 @@ reads other data-source tables, without the Hive metastore client. Works as a na
   `make test`, `make verify`, `make package` (every module), `make ministack-up` / `make ministack-down`,
   `make compat-up` / `make compat-down` / `make compat` (Trino and legacy Spark suites, `docker/docker-compose.yml`),
   `make matrix` (full CI matrix on GitHub Actions for the current, pushed branch), `make clean`.
-- Glue/STS/IAM emulator for tests: `docker run -d --rm --name ministack -p 4566:4566 ministackorg/ministack:1.5.31`
+- Glue/STS/IAM emulator for tests: `docker run -d --rm --name ministack -e AUTH=true -p 4566:4566 ministackorg/ministack:1.5.31`
   (the version pinned in `ci.yml` and the Makefile)
 - Unit tests: `./mvnw -pl modules/spark-4.1_2.13 -DskipITs test`
 - Unit tests, jar and integration tests against the jar: `./mvnw -pl modules/spark-4.1_2.13 verify`
