@@ -96,7 +96,8 @@
       <scope>test</scope>
     </dependency>
     <dependency>
-      <!-- S3A integration tests; the SDK v2 modules below replace hadoop-aws's SDK bundle (one copy of the SDK) -->
+      <!-- S3A integration tests. The SDK v2 modules below replace hadoop-aws's SDK bundle (one copy of the
+           SDK); S3A's HTTP client is the provided apache-client above. -->
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-aws</artifactId>
       <version>${hadoop.aws.version}</version>
