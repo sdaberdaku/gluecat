@@ -238,6 +238,10 @@ class GlueCoreCatalog(val catalogName: String, glue: GlueApi, options: GlueCatal
       case _ => true
     }
     val altered = table.copy(schema = SchemaChanges(table.schema, columnChanges))
+    // The entry keeps the partition column names; without their columns it would no longer load.
+    table.partitionColumnNames.filterNot(altered.schema.fieldNames.contains).foreach { c =>
+      throw new UnsupportedOperationException(s"Partition column $c cannot be dropped or renamed")
+    }
     update(n, entry, EntryConverter.toGlueTable(altered, schemaThreshold()), removed)
     loadTable(n)
   }

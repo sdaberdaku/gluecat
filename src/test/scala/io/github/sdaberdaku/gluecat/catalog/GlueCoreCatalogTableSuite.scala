@@ -4,7 +4,7 @@ import scala.collection.JavaConverters._
 
 import org.apache.spark.sql.catalyst.analysis.{NoSuchNamespaceException, NoSuchTableException, TableAlreadyExistsException}
 import org.apache.spark.sql.connector.catalog.{Identifier, TableChange}
-import org.apache.spark.sql.connector.expressions.Transform
+import org.apache.spark.sql.connector.expressions.{Expressions, Transform}
 import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
 import org.junit.runner.RunWith
 import org.scalatestplus.junit.JUnitRunner
@@ -121,6 +121,18 @@ class GlueCoreCatalogTableSuite extends AnyFunSuite {
     c.alterTable(id("j"), TableChange.addColumn(Array("x"), StringType))
     assert(glue.getTable("db", "j").get.parameters("spark.sql.sources.schema").contains("\"x\""))
     assert(v1(c, "j").schema.fieldNames.toSeq == Seq("id", "x"))
+  }
+
+  test("partition columns cannot be dropped or renamed") {
+    val (c, glue) = fixture()
+    c.createTable(id("p"), schema.add("dt", StringType), Array[Transform](Expressions.identity("dt")),
+      props("provider" -> "parquet", "location" -> "s3://bucket-a/p"))
+    val version = glue.getTable("db", "p").get.versionId
+    Seq(TableChange.deleteColumn(Array("dt"), false), TableChange.renameColumn(Array("dt"), "day")).foreach { change =>
+      assert(intercept[UnsupportedOperationException](c.alterTable(id("p"), change)).getMessage.contains("dt"))
+    }
+    assert(glue.getTable("db", "p").get.versionId == version)
+    assert(v1(c, "p").schema.fieldNames.toSeq == Seq("id", "dt"))
   }
 
   test("alterTable reserved keys fail") {
