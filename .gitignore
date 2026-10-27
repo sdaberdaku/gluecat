@@ -48,3 +48,4 @@ docs/site/assets/
 docs/site/changelog.md
 
 .superpowers/
+__pycache__/

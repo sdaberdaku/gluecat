@@ -72,16 +72,29 @@ class ReadTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             (root / "pom.xml").write_text(
-                "<modules>\n<module>modules/b</module>\n<module>modules/a</module>\n</modules>")
+                "<modules>\n<module>modules/b</module>\n<module>modules/a</module>\n</modules>"
+                "<delta.artifact>delta-spark_${scala.binary.version}</delta.artifact>")
             for name, minor in (("a", "3.5"), ("b", "4.0")):
                 (root / "modules" / name).mkdir(parents=True)
                 (root / "modules" / name / "pom.xml").write_text(
                     f"<scala.binary.version>2.13</scala.binary.version><spark.version>{minor}.1</spark.version>"
                     f"<spark.minor>{minor}</spark.minor><delta.version>1</delta.version>"
-                    "<java.release>17</java.release>")
+                    "<java.release>17</java.release><scala.version>2.13.1</scala.version>"
+                    "<hadoop.aws.version>3.4.1</hadoop.aws.version>")
             mods = render_tables.read_modules(root)
             self.assertEqual([m["minor"] for m in mods], ["4.0", "3.5"])
             self.assertEqual(mods[0]["spark"], "4.0.1")
+            self.assertEqual(mods[0]["delta_artifact"], "delta-spark_2.13")
+
+    def test_missing_property_names_the_file(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "pom.xml").write_text("<module>m</module><delta.artifact>x</delta.artifact>")
+            (root / "m").mkdir()
+            (root / "m" / "pom.xml").write_text("<spark.version>1.0.0</spark.version>")
+            with self.assertRaisesRegex(ValueError, r"pom\.xml: missing <spark\.minor>"):
+                render_tables.read_modules(root)
 
 
 if __name__ == "__main__":

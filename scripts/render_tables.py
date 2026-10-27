@@ -13,7 +13,8 @@ FILES = ("README.md", "docs/site/index.md")
 START, END = "<!-- artifacts:start -->", "<!-- artifacts:end -->"
 HEADER = ["| Artifact | Spark | Scala | Java bytecode | JDKs tested | Delta tested |", "|---|---|---|---|---|---|"]
 PROPS = {"spark": "spark.version", "minor": "spark.minor", "delta": "delta.version",
-         "scala": "scala.binary.version", "java": "java.release"}
+         "scala": "scala.binary.version", "java": "java.release", "scala_version": "scala.version",
+         "hadoop": "hadoop.aws.version"}
 
 
 def vkey(v):
@@ -21,12 +22,23 @@ def vkey(v):
 
 
 def read_modules(root):
-    """Modules in the order of the parent POM, each with the properties its pom.xml pins."""
+    """Modules in the order of the parent POM, each with the properties its pom.xml pins.
+
+    delta_artifact is the module's delta.artifact, or the parent's default when the module sets none."""
+    parent = (root / "pom.xml").read_text()
+    default = re.search(r"<delta\.artifact>([^<]+)</delta\.artifact>", parent).group(1)
     out = []
-    for path in re.findall(r"<module>([^<]+)</module>", (root / "pom.xml").read_text()):
+    for path in re.findall(r"<module>([^<]+)</module>", parent):
         pom = (root / path / "pom.xml").read_text()
-        out.append({k: re.search(rf"<{re.escape(p)}>([^<]+)</{re.escape(p)}>", pom).group(1)
-                    for k, p in PROPS.items()})
+        mod = {}
+        for k, p in PROPS.items():
+            found = re.search(rf"<{re.escape(p)}>([^<]+)</{re.escape(p)}>", pom)
+            if not found:
+                raise ValueError(f"{root / path / 'pom.xml'}: missing <{p}>")
+            mod[k] = found.group(1)
+        art = re.search(r"<delta\.artifact>([^<]+)</delta\.artifact>", pom)
+        mod["delta_artifact"] = (art.group(1) if art else default).replace("${scala.binary.version}", mod["scala"])
+        out.append(mod)
     return out
 
 
