@@ -81,6 +81,9 @@
       "matchManagers": [
         "github-actions"
       ],
+      "matchDepTypes": [
+        "action"
+      ],
       "automerge": true,
       "description": "GitHub Actions updates of any size are their own pull request and merge once ci-ok passes.",
       "groupName": "github actions"

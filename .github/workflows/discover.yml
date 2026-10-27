@@ -58,7 +58,8 @@ jobs:
           # holds a person's work, which a redo would throw away.
           redo() {
             number=$(gh pr view "$1" --json number -q .number)
-            others=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number/commits" --paginate --jq ".[].commit.author.email | select(. != \"$bot\")")
+            others=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number/commits" --paginate \
+              --jq ".[] | select(.commit.author.email != \"$bot\" or (.commit.committer.email != \"$bot\" and .commit.committer.email != \"noreply@github.com\")) | .sha")
             if [ -n "$others" ]; then
               echo "::error::Discovery pull request #$number ($1) cannot be rebased and has commits that are not from github-actions[bot]; resolve it by hand."
               exit 1
@@ -66,7 +67,9 @@ jobs:
             gh pr close "$1" --delete-branch
           }
           skip=false
-          for branch in $(gh pr list --state open --json headRefName,isCrossRepository --jq '.[] | select((.isCrossRepository|not) and (.headRefName|startswith("discover/"))) | .headRefName'); do
+          # Assigned on its own line so that a failing gh call stops the step under set -e.
+          branches=$(gh pr list --state open --json headRefName,isCrossRepository --jq '.[] | select((.isCrossRepository|not) and (.headRefName|startswith("discover/"))) | .headRefName')
+          for branch in $branches; do
             state=$(gh pr view "$branch" --json mergeStateStatus -q .mergeStateStatus)
             echo "Open discovery pull request on $branch ($state)."
             case "$state" in
@@ -87,15 +90,17 @@ jobs:
                 ;;
             esac
             sha=$(gh pr view "$branch" --json headRefOid -q .headRefOid)
-            read -r run conclusion attempt < <(gh run list -w ci.yml -c "$sha" --limit 1 --json databaseId,conclusion,attempt -q '.[] | "\(.databaseId) \(.conclusion) \(.attempt)"' || true)
-            if [ "${conclusion:-}" = failure ]; then
+            # No run yet (for example right after a rebase) leaves the three empty; ensure_ci.sh then dispatches one.
+            run="" conclusion="" attempt=""
+            read -r run conclusion attempt < <(gh run list -w ci.yml -c "$sha" --limit 1 --json databaseId,conclusion,attempt -q '.[] | "\(.databaseId) \(.conclusion) \(.attempt)"') || true
+            if [[ "$conclusion" =~ ^(failure|timed_out|cancelled|startup_failure)$ ]]; then
               if [ "$attempt" -le 1 ]; then
-                echo "CI run $run failed on $branch: rerunning its failed jobs once."
+                echo "CI run $run ended $conclusion on $branch: rerunning its failed jobs once."
                 gh run rerun "$run" --failed
                 skip=true
                 continue
               fi
-              echo "::error::Discovery pull request on $branch: CI run $run failed again (attempt $attempt). Fix the code, pin the rows to the old Spark patch, or decline the update in scripts/discover-ignore.txt."
+              echo "::error::Discovery pull request on $branch: CI run $run ended $conclusion again (attempt $attempt). Fix the code, pin the rows to the old Spark patch, or decline the update in scripts/discover-ignore.txt."
               exit 1
             fi
             scripts/ensure_ci.sh "$branch"

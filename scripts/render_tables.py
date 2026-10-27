@@ -124,7 +124,7 @@ def example(modules, version):
         raise ValueError(f"no Spark {EXAMPLE_MINOR} Scala 2.13 module for the example command")
     return (
         f"Example for Spark {EXAMPLE_MINOR} with Delta {m['delta']} and S3A: `hadoop-aws` (the same version as the Hadoop "
-        "jars in your Spark distribution, `<hadoop-version>` below) brings the SDK bundle, and mapping `s3://` to S3A "
+        "jars in your Spark distribution, `<hadoop-version>` below; `ls $SPARK_HOME/jars/hadoop-client-api-*.jar` shows it) brings the SDK bundle, and mapping `s3://` to S3A "
         "keeps the table locations in Glue as `s3://`, the form Athena reads:\n\n```\n"
         f"spark-sql --packages io.github.sdaberdaku:gluecat-spark-{m['minor']}_{m['scala']}:{version},"
         f"io.delta:{m['delta_artifact']}:{m['delta']},org.apache.hadoop:hadoop-aws:<hadoop-version> \\\n"

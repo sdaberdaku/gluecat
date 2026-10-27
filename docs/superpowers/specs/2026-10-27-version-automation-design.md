@@ -86,13 +86,13 @@
     in the parent POM), Docker images in `ci.yml`, `docker/docker-compose.yml` and the `Makefile` (MiniStack, Trino)
     via the `docker-compose` manager plus a regex manager; `packageRules` disable `org.apache.spark:*`, `io.delta:*`,
     `org.scala-lang:*`, `org.apache.hadoop:*` and `software.amazon.awssdk:*` (SDK 2.24.6 is a deliberate `provided`
-    floor) and the `spark-with-glue` legacy image (its tag is the Spark version of the legacy suite, not semver);
+    floor) and the `spark-with-glue` legacy image (its tag is the Spark version of the legacy suite);
     patch, pin and digest updates form one "patch updates" pull request that automerges after `ci-ok`; minor updates
     form one "minor updates" pull request that is reviewed; GitHub Actions updates are their own pull request and
     automerge; major updates (every Trino release) are reviewed; weekly schedule.
 12. Invariant: every module has at least one `matrix.json` row on its own `spark.version` and `delta.version`, and
     every row names an existing module. `scripts/render_tables.py` enforces it (CI runs `--check` and the message
-    names the module), rules 4 and 5 raise instead of skipping a module without such rows, and `discover.py`
+    names the module), rules 4 and 5 raise on a module without such rows, and `discover.py`
     validates its plan before writing.
 13. `scripts/discover-ignore.txt` declines updates: one entry per line, `#` comments, in the form of the leading part
     of an addition line: `spark 4.3`, `spark 4.2.1`, `delta 4.5.0`, `delta 4.5.0 spark-4.0_2.13`,

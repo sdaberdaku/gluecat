@@ -15,8 +15,8 @@ One line per addition is printed; nothing is printed when nothing changes. Stabl
 Invariant (enforced by scripts/render_tables.py, which CI runs with --check): every module has at least one row on its
 own spark.version and delta.version, and every row's module exists. Rules 4 and 5 raise when a module has no such row.
 
-scripts/discover-ignore.txt declines updates: one entry per line, "#" starts a comment, entries are the leading part of
-an addition line: "spark 4.3" (a whole line), "spark 4.2.1", "delta 4.5.0", "delta 4.5.0 spark-4.0_2.13" (one module
+scripts/discover-ignore.txt declines updates: one entry per line, "#" starts a comment, for example
+"spark 4.3" (a whole line), "spark 4.2.1", "delta 4.5.0", "delta 4.5.0 spark-4.0_2.13" (one module
 only), "module spark-4.3_2.13" (do not create that module).
 """
 import argparse

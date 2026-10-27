@@ -67,7 +67,7 @@ Every module keeps at least one row on its own Spark and Delta versions, and eve
 files by hand, rerun `python scripts/render_tables.py`.
 
 When a discovery pull request fails, fix the code, or pin the failing rows to the old Spark patch in `matrix.json`.
-Removing rows by hand does not stick: the next run adds them back. To decline an update, add it to
+Reverting an update by hand does not stick: the next run proposes it again. To decline an update, add it to
 `scripts/discover-ignore.txt` (one entry per line, `#` starts a comment; the file explains the formats): `spark 4.3`,
 `spark 4.2.1`, `delta 4.5.0`, `delta 4.5.0 spark-4.0_2.13` or `module spark-4.3_2.13`. A new module is not
 published by the pull request. It needs a release tag, which includes it in the next release.
