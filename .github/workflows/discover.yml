@@ -1,0 +1,108 @@
+# Looks for new Spark and Delta releases on Maven Central once a day and opens a
+# pull request that updates matrix.json and the version tables. No builds run
+# here: the pull request triggers ci.yml itself (a ci.yml dispatch with the full
+# matrix is the fallback when no run shows up) and auto-merges once `ci-ok` is
+# green. Each run also repairs an open discovery pull request (rebase when
+# behind, close and redo when conflicting). Publishing stays with the release
+# tags.
+name: discover
+
+on:
+  schedule:
+    - cron: "30 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: discover
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Repair an open discovery pull request or clear stale branches
+        id: open
+        run: |
+          set -euo pipefail
+          skip=false
+          for branch in $(gh pr list --state open --json headRefName --jq '.[].headRefName | select(startswith("discover/"))'); do
+            state=$(gh pr view "$branch" --json mergeStateStatus -q .mergeStateStatus)
+            echo "Open discovery pull request on $branch ($state)."
+            case "$state" in
+              DIRTY)
+                gh pr close "$branch" --delete-branch
+                continue
+                ;;
+              BEHIND)
+                old=$(gh pr view "$branch" --json headRefOid -q .headRefOid)
+                gh pr update-branch "$branch" --rebase
+                for _ in $(seq 12); do
+                  [ "$(gh pr view "$branch" --json headRefOid -q .headRefOid)" != "$old" ] && break
+                  sleep 5
+                done
+                ;;
+            esac
+            scripts/ensure_ci.sh "$branch"
+            gh pr merge "$branch" --auto --squash --delete-branch
+            skip=true
+          done
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          if [ "$skip" = false ]; then
+            for branch in $(git ls-remote --heads origin 'discover/*' | sed 's#.*refs/heads/##'); do
+              echo "Deleting stale branch $branch."
+              git push origin --delete "$branch"
+            done
+          fi
+      - name: Discover new versions
+        id: found
+        if: steps.open.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          python scripts/discover.py > "$RUNNER_TEMP/additions.txt"
+          cat "$RUNNER_TEMP/additions.txt"
+          if [ -s "$RUNNER_TEMP/additions.txt" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Open the pull request
+        if: steps.found.outputs.found == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          additions="$RUNNER_TEMP/additions.txt"
+          branch="discover/$(date -u +%Y%m%d)"
+          summary=$(paste -sd';' "$additions" | sed 's/;/; /g')
+          subject="build: $summary"
+          if [ "${#subject}" -gt 72 ]; then
+            subject="${subject:0:71}…"
+          fi
+          python scripts/render_tables.py
+          git switch -c "$branch"
+          git add -A
+          git commit -m "$subject" -m "$summary"
+          git push origin "$branch"
+          {
+            echo "Maven Central has new Spark or Delta releases:"
+            echo
+            cat "$additions"
+            echo
+            if grep -q '^module ' "$additions"; then
+              echo "A release is needed to publish the new artifact."
+              echo
+            fi
+            echo "CI runs the full Spark x Delta x JDK matrix on this pull request. It merges itself once every row passes. A failing row has to be fixed or trimmed by hand before the pull request can merge."
+          } > "$RUNNER_TEMP/body.md"
+          gh pr create --base main --head "$branch" --title "$subject" --body-file "$RUNNER_TEMP/body.md"
+          scripts/ensure_ci.sh "$branch"
+          gh pr merge "$branch" --auto --squash --delete-branch
