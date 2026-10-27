@@ -25,20 +25,28 @@
    Delta, Scala and hadoop-aws version in the module POMs and in `matrix.json`. Renovate never touches them.
 2. New Spark patch in a module's line (e.g. 4.2.1 > module `spark.version` 4.2.0):
    - module `spark.version` → new patch; `scala.version` and `hadoop.aws.version` → the values in that
-     release's `spark-parent` POM;
+     release's `spark-parent` POM, but only when that value is numerically higher than the module's (Spark's
+     parent POM can carry an older Scala or Hadoop than the module pins, e.g. Scala 2.13.8 for Spark 3.5);
    - every row of that module whose `spark` equals the old module `spark.version` moves to the new patch; pinned
      rows stay.
 3. New Delta patch for a line (e.g. 4.4.2 when rows use 4.4.1, artifact available for the module's Spark minor):
-   - rows and the module `delta.version` on 4.4.1 move to 4.4.2 (a patch supersedes its predecessor).
+   - every row and the module `delta.version` on 4.4.1 move to 4.4.2 (a patch supersedes its predecessor),
+     including rows on a pinned Spark patch (the 3.5.3 floor rows follow 3.3.3 → 3.3.4); the pin is the Spark
+     patch, and discovery never changes the Spark version of a pinned row;
+   - the Delta artifact is checked per Spark minor first (`io.delta:delta-spark_<spark.minor>_<scala>`); moved
+     rows get `"deltaArtifact": "<that artifact>"` (after `delta` in the key order) unless it is the module's
+     default artifact, and fall back to the artifact they already use only when the per-Spark artifact lacks the
+     version.
 4. New Delta minor (e.g. 4.5.0) with an artifact for a module's Spark minor:
-   - copy that module's rows on its current Delta (one per JDK) with the new Delta; the copied rows keep their
-     `smoke` flags;
+   - copy that module's current rows (module `spark.version`, current Delta; one per JDK) with the new Delta; the
+     copied rows keep their `smoke` flags and get `deltaArtifact` under the same per-Spark-first rule as rule 3;
    - the previous current-Delta rows shrink to the lowest-JDK row with `smoke: false` (matches the existing
      pattern for older Delta versions);
    - module `delta.version` → the new Delta.
 5. New Spark minor or major line (e.g. 4.3, 5.0) for Scala 2.13, only once `delta-spark_<minor>_2.13` exists:
    - new module directory from the newest module's POM: artifactId, name, description, `spark.version`,
-     `spark.minor`, `delta.version` (newest Delta with that artifact), `scala.version` and `hadoop.aws.version`
+     `spark.minor`, `delta.version` (newest Delta with that artifact), `delta.artifact` = `delta-spark_<minor>_2.13` (the module
+     default, so its rows carry no `deltaArtifact`), `scala.version` and `hadoop.aws.version`
      from `spark-parent`, `java.release` unchanged;
    - `<module>` entry in the parent POM after the newest one;
    - matrix rows copied from the newest module's current-Spark, current-Delta rows (same JDKs and smoke flags);

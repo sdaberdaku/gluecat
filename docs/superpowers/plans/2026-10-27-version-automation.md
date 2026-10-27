@@ -21,7 +21,7 @@
 
 ## Review Focus
 
-1. A discovery run must never edit a pinned row (3.5.3 rows, the 4.1.1 rows). Test in Task 2.
+1. A discovery run must never change the Spark version of a pinned row (3.5.3 rows, the 4.1.1 rows); Delta patches still move their Delta. Test in Task 2.
 2. A new Spark line without a matching `delta-spark_<minor>_2.13` artifact adds nothing. Test in Task 2.
 3. A Delta minor that only exists for some Spark lines adds rows only to those modules. Test in Task 2.
 4. Writer output for the current files is byte-identical when there is nothing to change. Test in Task 2.

@@ -3,10 +3,10 @@
 
 Rules (docs/superpowers/specs/2026-10-27-version-automation-design.md), applied in this order:
   1. a new Spark patch in a module's line moves the module and its current-Spark matrix rows;
-  2. a new Delta patch moves the current-Spark rows and the module that use the older patch;
+
   3. a new Delta minor (same major, artifact available for the module) adds rows and shrinks the old ones;
   4. a new Spark line for Scala 2.13 becomes a module once delta-spark_<minor>_2.13 exists.
-Rows on another Spark patch than the module's are deliberate pins and are never touched.
+Discovery never changes the Spark version of a row pinned to another Spark patch.
 One line per addition is printed; nothing is printed when nothing changes. Stable releases only.
 """
 import argparse
@@ -58,6 +58,33 @@ def higher(current, candidate):
     return candidate if vkey(candidate) > vkey(current) else current
 
 
+def per_spark(m):
+    return f"delta-spark_{m['minor']}_{m['scala']}"
+
+
+def patch_from(m, delta_versions, base, fallback):
+    """(newer patch of base, artifact) from the module's per-Spark artifact first, then from fallback."""
+    for art in (per_spark(m), fallback):
+        new = newest_patch(delta_versions.get(art, []), base)
+        if new:
+            return new, art
+    return None
+
+
+def with_artifact(r, art, m):
+    """Row r on artifact art: no deltaArtifact key when art is the module default, else the key after delta."""
+    if art == m["delta_artifact"]:
+        return {k: v for k, v in r.items() if k != "deltaArtifact"}
+    if "deltaArtifact" in r:
+        return dict(r, deltaArtifact=art)
+    out = {}
+    for k, v in r.items():
+        out[k] = v
+        if k == "delta":
+            out["deltaArtifact"] = art
+    return out
+
+
 def plan_updates(modules, rows, spark_versions, delta_versions, spark_parent):
     """Apply rules 2-6. spark_versions: {scala binary: [versions]}; delta_versions: {artifact: [versions]};
     spark_parent(scala binary, spark version) -> {"hadoop", "scala"}. Returns (modules, rows, additions)."""
@@ -84,39 +111,38 @@ def plan_updates(modules, rows, spark_versions, delta_versions, spark_parent):
         found.setdefault(new, []).append(name(m))
     report("spark", found)
 
-    found = {}  # rule 3: Delta patches
+    found = {}  # rule 3: Delta patches; every row on the old patch follows, pinned Spark patches stay as they are
     for m in modules:
-        for r in rows:
-            if r["module"] == name(m) and r["spark"] == m["spark"]:
-                new = newest_patch(delta_versions.get(r.get("deltaArtifact", m["delta_artifact"]), []), r["delta"])
-                if new:
-                    r["delta"] = new
-                    found.setdefault(new, [])
-                    if name(m) not in found[new]:
-                        found[new].append(name(m))
-        new = newest_patch(delta_versions.get(m["delta_artifact"], []), m["delta"])
-        if new:
-            m["delta"] = new
-            found.setdefault(new, [])
-            if name(m) not in found[new]:
-                found[new].append(name(m))
+        for i, r in enumerate(rows):
+            if r["module"] != name(m):
+                continue
+            hit = patch_from(m, delta_versions, r["delta"], r.get("deltaArtifact", m["delta_artifact"]))
+            if hit:
+                rows[i] = with_artifact(dict(r, delta=hit[0]), hit[1], m)
+                found.setdefault(hit[0], [])
+                if name(m) not in found[hit[0]]:
+                    found[hit[0]].append(name(m))
+        hit = patch_from(m, delta_versions, m["delta"], m["delta_artifact"])
+        if hit:
+            m["delta"] = hit[0]
+            found.setdefault(hit[0], [])
+            if name(m) not in found[hit[0]]:
+                found[hit[0]].append(name(m))
     report("delta", found)
 
-    found = {}  # rule 4: Delta minors
+    found = {}  # rule 4: Delta minors (current rows only)
     for m in modules:
-        versions = stable(delta_versions.get(m["delta_artifact"], []))
+        per = per_spark(m)
+        by_art = {a: stable(delta_versions.get(a, [])) for a in (per, m["delta_artifact"])}
         major = vkey(m["delta"])[0]
-        for ln in sorted({line(v) for v in versions if line(v)[0] == major and line(v) > line(m["delta"])}):
-            new = [v for v in versions if line(v) == ln][-1]
+        lines = {line(v) for vs in by_art.values() for v in vs if line(v)[0] == major and line(v) > line(m["delta"])}
+        for ln in sorted(lines):
+            art = next(a for a in (per, m["delta_artifact"]) if any(line(v) == ln for v in by_art[a]))
+            new = [v for v in by_art[art] if line(v) == ln][-1]
             cur = [r for r in rows if r["module"] == name(m) and r["spark"] == m["spark"] and r["delta"] == m["delta"]]
             if not cur:
                 continue
-            copies = []
-            for r in cur:
-                c = dict(r)
-                c["delta"] = new
-                c.pop("deltaArtifact", None)
-                copies.append(c)
+            copies = [with_artifact(dict(r, delta=new), art, m) for r in cur]
             keep = min(cur, key=lambda r: vkey(r["jdk"]))
             rows = [r for r in rows if r is keep or not any(r is c for c in cur)]
             keep["smoke"] = False
@@ -297,7 +323,7 @@ def main(argv=None, root=ROOT):
     args = ap.parse_args(argv)
     modules, rows = render_tables.read_modules(root), render_tables.read_rows(root)
     spark = {s: fetch_versions("org.apache.spark", f"spark-sql_{s}") for s in dict.fromkeys(m["scala"] for m in modules)}
-    artifacts = ({m["delta_artifact"] for m in modules} | {r["deltaArtifact"] for r in rows if "deltaArtifact" in r}
+    artifacts = ({m["delta_artifact"] for m in modules} | {per_spark(m) for m in modules} | {r["deltaArtifact"] for r in rows if "deltaArtifact" in r}
                  | set(new_lines(modules, spark)))
     delta = {a: fetch_versions("io.delta", a) for a in sorted(artifacts)}
     new_modules, new_rows, adds = plan_updates(modules, rows, spark, delta, fetch_spark_parent)

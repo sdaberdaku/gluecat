@@ -88,16 +88,43 @@ class DeltaPatchTest(unittest.TestCase):  # rule 3
         self.assertEqual({r["delta"] for r in out}, {"4.4.2"})
         self.assertEqual(adds, ["delta 4.4.2 (spark-4.2_2.13)"])
 
-    def test_pinned_rows_untouched(self):
-        rows = rows42() + [row(M42, "4.1.1", "4.4.1", "17")]
-        _, out, _ = plan([m42()], rows, delta={"delta-spark_2.13": ["4.4.1", "4.4.2"]})
-        self.assertEqual(out[-1]["delta"], "4.4.1")
+    def test_pinned_rows_follow_the_delta_patch_but_keep_their_spark(self):
+        rows = rows42() + [row(M42, "4.1.1", "4.4.1", "17"), row(M42, "4.1.1", "4.3.0", "17")]
+        _, out, _ = plan([m42()], rows, delta={"delta-spark_2.13": ["4.3.0", "4.4.1", "4.4.2"]})
+        self.assertEqual([(r["spark"], r["delta"]) for r in out[-2:]], [("4.1.1", "4.4.2"), ("4.1.1", "4.3.0")])
+
+    def test_floor_rows_follow(self):
+        m = mod("3.5", "3.5.9", "3.3.3", art="delta-spark_2.13", java="8")
+        n = "spark-3.5_2.13"
+        rows = [row(n, "3.5.3", "3.3.3", "8", True), row(n, "3.5.9", "3.3.3", "8")]
+        mods, out, _ = plan([m], rows, delta={"delta-spark_2.13": ["3.3.3", "3.3.4"]})
+        self.assertEqual([(r["spark"], r["delta"]) for r in out], [("3.5.3", "3.3.4"), ("3.5.9", "3.3.4")])
+        self.assertEqual(mods[0]["delta"], "3.3.4")
 
     def test_row_artifact_decides_availability(self):
         r = [row(M42, "4.2.0", "4.1.0", "17", deltaArtifact="delta-spark_2.13")]
-        d = {"delta-spark_4.2_2.13": ["4.1.0", "4.1.1"], "delta-spark_2.13": ["4.1.0"]}
-        _, out, adds = plan([m42()], r, delta=d)
+        _, out, adds = plan([m42()], r, delta={"delta-spark_2.13": ["4.1.0"], "elsewhere": ["4.1.1"]})
         self.assertEqual((out[0]["delta"], adds), ("4.1.0", []))
+        _, out, _ = plan([m42()], r, delta={"delta-spark_2.13": ["4.1.0", "4.1.1"]})
+        self.assertEqual(out[0], row(M42, "4.2.0", "4.1.1", "17"))  # the module default is that artifact
+
+    def test_per_spark_artifact_first_with_key_order(self):
+        d = {"delta-spark_4.2_2.13": ["4.4.1", "4.4.2"], "delta-spark_2.13": ["4.4.1", "4.4.2"]}
+        _, out, _ = plan([m42()], rows42(), delta=d)
+        self.assertEqual(list(out[0]), ["module", "spark", "delta", "deltaArtifact", "jdk", "smoke"])
+        self.assertEqual({r["deltaArtifact"] for r in out}, {"delta-spark_4.2_2.13"})
+
+    def test_falls_back_to_the_unsuffixed_artifact(self):
+        d = {"delta-spark_4.2_2.13": ["4.4.1"], "delta-spark_2.13": ["4.4.1", "4.4.2"]}
+        _, out, _ = plan([m42()], rows42(), delta=d)
+        self.assertEqual(out[0]["delta"], "4.4.2")
+        self.assertNotIn("deltaArtifact", out[0])
+
+    def test_no_key_when_the_module_default_is_the_per_spark_artifact(self):
+        a = mod("4.1", "4.1.3", "4.4.1")
+        rows = [row("spark-4.1_2.13", "4.1.3", "4.4.1", "17", True, deltaArtifact="delta-spark_2.13")]
+        _, out, _ = plan([a], rows, delta={"delta-spark_4.1_2.13": ["4.4.1", "4.4.2"]})
+        self.assertEqual(out[0], row("spark-4.1_2.13", "4.1.3", "4.4.2", "17", True))
 
     def test_no_artifact_no_line(self):
         _, out, adds = plan([m42()], rows42(), delta={})
@@ -145,6 +172,12 @@ class DeltaMinorTest(unittest.TestCase):  # rule 4
         m = mod("3.5", "3.5.9", "3.3.3", art="delta-spark_2.13", java="8")
         mods, _, adds = plan([m], [], delta={"delta-spark_2.13": ["3.3.3", "4.0.1", "4.4.1"]})
         self.assertEqual((mods[0]["delta"], adds), ("3.3.3", []))
+
+    def test_copies_use_the_per_spark_artifact_when_it_has_the_version(self):
+        d = {"delta-spark_2.13": ["4.4.1", "4.5.0"], "delta-spark_4.2_2.13": ["4.4.1", "4.5.0"]}
+        _, out, _ = plan([m42()], rows42(), delta=d)
+        self.assertEqual(out[1], row(M42, "4.2.0", "4.5.0", "17", True, deltaArtifact="delta-spark_4.2_2.13"))
+        self.assertNotIn("deltaArtifact", out[0])
 
     def test_copy_drops_delta_artifact_key(self):
         r = [row(M42, "4.2.0", "4.4.1", "17", True, deltaArtifact="delta-spark_2.13")]
