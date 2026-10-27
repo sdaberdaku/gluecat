@@ -42,9 +42,10 @@ Unit tests are `*Suite` classes (surefire, run against `target/classes`); integr
 
 ## Dependency updates
 
-Renovate (`renovate.json`) opens at most four pull requests a week, on Monday mornings, for GitHub Actions, Maven
-plugins and test libraries, and the container images in `ci.yml`, `docker/docker-compose.yml` and the `Makefile`.
-Patch, pin and digest updates and all Action updates merge by themselves once `ci-ok` passes; minor updates arrive as
+Renovate (`renovate.json`) opens pull requests on Monday mornings for GitHub Actions, Maven plugins and test
+libraries, and the container images in `ci.yml`, `docker/docker-compose.yml` and the `Makefile`, and keeps at most
+four of them open at a time. Patch, pin and digest updates, and GitHub Actions updates of any size, merge by
+themselves once `ci-ok` passes; minor updates arrive as
 one grouped pull request, and major ones (including every new Trino release, whose tags are plain integers) wait for
 review. Renovate never touches Spark, Delta, Scala, hadoop-aws or the AWS SDK versions: the discovery workflow owns
 the first four, and the SDK is the `provided` floor. The `spark-with-glue` legacy image is pinned by hand.
