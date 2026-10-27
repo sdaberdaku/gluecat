@@ -11,6 +11,13 @@ A Delta version counts for a module only if its per-Spark artifact delta-spark_<
 unsuffixed delta-spark_<scala> is used only for a Spark minor that has no per-Spark artifact (Spark 3.5), within the
 module's Delta major. Discovery never changes the Spark version of a row pinned to another Spark patch.
 One line per addition is printed; nothing is printed when nothing changes. Stable releases only.
+
+Invariant (enforced by scripts/render_tables.py, which CI runs with --check): every module has at least one row on its
+own spark.version and delta.version, and every row's module exists. Rules 4 and 5 raise when a module has no such row.
+
+scripts/discover-ignore.txt declines updates: one entry per line, "#" starts a comment, entries are the leading part of
+an addition line: "spark 4.3" (a whole line), "spark 4.2.1", "delta 4.5.0", "delta 4.5.0 spark-4.0_2.13" (one module
+only), "module spark-4.3_2.13" (do not create that module).
 """
 import argparse
 import json
@@ -35,6 +42,33 @@ Test-only: when DISCOVER_FAKE_MAVEN is set the network is never used. It is a JS
 "group:artifact" to a list of versions, e.g. "io.delta:delta-spark_2.13": ["4.4.1"], and
 "spark-parent:<scala binary>:<spark version>" to {"hadoop": "...", "scala": "..."}.
 """
+
+
+# ---- declined updates -------------------------------------------------------------------------------------------
+
+def parse_ignore(text):
+    """Entries of discover-ignore.txt as (kind, version, module or None) tuples; a bad line raises ValueError."""
+    out = []
+    for n, raw in enumerate(text.splitlines(), 1):
+        words = raw.split("#")[0].split()
+        if not words:
+            continue
+        kind = words[0]
+        ok = (kind in ("spark", "module") and len(words) == 2) or (kind == "delta" and len(words) in (2, 3))
+        if not ok:
+            raise ValueError(f"discover-ignore.txt line {n}: cannot read {raw!r}")
+        out.append((kind, words[1], words[2] if len(words) == 3 else None))
+    return out
+
+
+def declined(ignore, kind, version, module=None):
+    """True when an entry covers the version: exactly, or as the major.minor line of it."""
+    return any(k == kind and (v == version or version.startswith(v + ".")) and (mod in (None, module))
+               for k, v, mod in ignore)
+
+
+def without_declined(ignore, kind, versions, module=None):
+    return [v for v in versions if not declined(ignore, kind, v, module)]
 
 
 # ---- pure rules -------------------------------------------------------------------------------------------------
@@ -117,17 +151,25 @@ def new_line_candidates(modules, spark_versions, dv):
     return sorted({line(v) for v in stable(spark_versions.get("2.13", [])) if line(v) > floor} - have)
 
 
-def plan_updates(modules, rows, spark_versions, delta_versions, spark_parent):
+def plan_updates(modules, rows, spark_versions, delta_versions, spark_parent, ignore=()):
     """Apply rules 2-6. spark_versions: {scala binary: [versions]}; delta_versions: {artifact: [versions]};
-    spark_parent(scala binary, spark version) -> {"hadoop", "scala"}. Returns (modules, rows, additions)."""
+    spark_parent(scala binary, spark version) -> {"hadoop", "scala"}; ignore: parse_ignore() entries.
+    Returns (modules, rows, additions)."""
     modules, rows = [dict(m) for m in modules], [dict(r) for r in rows]
-    dv = delta_versions
+    spark_versions = {s: without_declined(ignore, "spark", vs) for s, vs in spark_versions.items()}
     adds = []
+
+    def dvm(m):
+        """Delta versions as the module sees them: without the ones declined for it."""
+        return {a: without_declined(ignore, "delta", vs, name(m)) for a, vs in delta_versions.items()}
 
     def report(kind, found, notes=None):
         for v in sorted(found, key=vkey):
-            extra = "".join(f"; {n}" for n in (notes or {}).get(v, []))
-            adds.append(f"{kind} {v} ({', '.join(found[v])}{extra})")
+            parts = []
+            for n in found[v]:
+                extra = (notes or {}).get(v, {}).get(n, [])
+                parts.append(f"{n}: {', '.join(extra)}" if extra else n)
+            adds.append(f"{kind} {v} ({'; '.join(parts)})")
 
     found, notes = {}, {}  # rule 2: Spark patches
     for m in modules:
@@ -143,15 +185,14 @@ def plan_updates(modules, rows, spark_versions, delta_versions, spark_parent):
             src = key.split("_")[0]
             if new_parent[src] != old_parent[src] and vkey(new_parent[src]) > vkey(m[key]):
                 m[key] = new_parent[src]
-                note = f"{label} {m[key]}"
-                if note not in notes.setdefault(new, []):
-                    notes[new].append(note)
+                notes.setdefault(new, {}).setdefault(name(m), []).append(f"{label} {m[key]}")
         m["spark"] = new
         found.setdefault(new, []).append(name(m))
     report("spark", found, notes)
 
     found = {}  # rule 3: Delta patches; every row on the old patch follows, pinned Spark patches stay as they are
     for m in modules:
+        dv = dvm(m)
         per = uses_per(m, dv)
         for i, r in enumerate(rows):
             if r["module"] != name(m):
@@ -178,6 +219,7 @@ def plan_updates(modules, rows, spark_versions, delta_versions, spark_parent):
 
     found = {}  # rule 4: Delta minors (current rows only)
     for m in modules:
+        dv = dvm(m)
         versions = pool(m, dv)
         if not uses_per(m, dv):
             versions = [v for v in versions if vkey(v)[0] == vkey(m["delta"])[0]]
@@ -185,7 +227,8 @@ def plan_updates(modules, rows, spark_versions, delta_versions, spark_parent):
             new = [v for v in versions if line(v) == ln][-1]
             cur = [r for r in rows if r["module"] == name(m) and r["spark"] == m["spark"] and r["delta"] == m["delta"]]
             if not cur:
-                continue
+                raise ValueError(f"{name(m)}: no matrix.json row on spark {m['spark']} with delta {m['delta']} "
+                                 f"to carry Delta {new}")
             art = per_spark(m) if uses_per(m, dv) else m["delta_artifact"]
             copies = [with_artifact(dict(r, delta=new), art, m) for r in cur]
             keep = min(cur, key=lambda r: vkey(r["jdk"]))
@@ -199,10 +242,12 @@ def plan_updates(modules, rows, spark_versions, delta_versions, spark_parent):
     report("delta", found)
 
     spark213 = stable(spark_versions.get("2.13", []))  # rule 5: new Spark lines, in version order
-    for ln in new_line_candidates(modules, spark_versions, dv):
+    for ln in new_line_candidates(modules, spark_versions, delta_versions):
         minor = f"{ln[0]}.{ln[1]}"
         artifact = f"delta-spark_{minor}_2.13"
-        delta = stable(dv.get(artifact, []))
+        if declined(ignore, "module", f"spark-{minor}_2.13"):
+            continue
+        delta = without_declined(ignore, "delta", stable(delta_versions.get(artifact, [])), f"spark-{minor}_2.13")
         if not delta:
             continue
         spark = [v for v in spark213 if line(v) == ln][-1]
@@ -217,6 +262,9 @@ def plan_updates(modules, rows, spark_versions, delta_versions, spark_parent):
                 c = dict(r, module=name(new), spark=spark, delta=delta[-1])
                 c.pop("deltaArtifact", None)
                 copies.append(c)
+        if not copies:
+            raise ValueError(f"{name(pred)}: no matrix.json row on spark {pred['spark']} with delta "
+                             f"{pred['delta']} to copy for {name(new)}")
         at = max((i + 1 for i, r in enumerate(rows) if r["module"] == name(pred)), default=len(rows))
         rows[at:at] = copies
         modules.insert(modules.index(pred) + 1, new)
@@ -381,13 +429,21 @@ def main(argv=None, root=ROOT):
     ap.add_argument("--dry-run", action="store_true", help="print the additions, write nothing")
     args = ap.parse_args(argv)
     modules, rows = render_tables.read_modules(root), render_tables.read_rows(root)
+    ignore_file = root / "scripts" / "discover-ignore.txt"
+    ignore = parse_ignore(ignore_file.read_text()) if ignore_file.exists() else []
     spark = {s: fetch_versions("org.apache.spark", f"spark-sql_{s}") for s in dict.fromkeys(m["scala"] for m in modules)}
     artifacts = ({m["delta_artifact"] for m in modules} | {per_spark(m) for m in modules}
                  | {r["deltaArtifact"] for r in rows if "deltaArtifact" in r})
     delta = {a: fetch_versions("io.delta", a) for a in sorted(artifacts)}
+    spark = {s: without_declined(ignore, "spark", vs) for s, vs in spark.items()}
     for a in new_lines(modules, spark, delta):
         delta[a] = fetch_versions("io.delta", a)
-    new_modules, new_rows, adds = plan_updates(modules, rows, spark, delta, fetch_spark_parent)
+    new_modules, new_rows, adds = plan_updates(modules, rows, spark, delta, fetch_spark_parent, ignore)
+    if adds:
+        try:
+            render_tables.validate(new_modules, new_rows)
+        except ValueError as e:
+            sys.exit(f"discover: the planned update breaks the module/row invariant: {e}")
     if adds:
         print("\n".join(adds))
     if adds and not args.dry_run:
