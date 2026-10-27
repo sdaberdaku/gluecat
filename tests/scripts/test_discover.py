@@ -6,6 +6,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -27,8 +28,10 @@ def row(module, spark, delta, jdk, smoke=False, **extra):
     return r
 
 
-def parent(scala="2.13.19", hadoop="3.5.0"):
-    return lambda s, v: {"scala": scala, "hadoop": hadoop}
+def parent(scala="2.13.19", hadoop="3.5.0", old=("4.2.0",), old_values=("2.13.18", "3.4.1")):
+    """spark-parent stub: the old Spark patches carry old_values, every other version the given ones."""
+    return lambda s, v: ({"scala": old_values[0], "hadoop": old_values[1]} if v in old
+                         else {"scala": scala, "hadoop": hadoop})
 
 
 def plan(modules, rows, spark=None, delta=None, par=None):
@@ -50,14 +53,26 @@ def rows42():
 class SparkPatchTest(unittest.TestCase):  # rule 2
     def test_current_rows_and_module_move_pinned_stay(self):
         rows = [row(M42, "4.2.0", "4.4.1", "17", True), row(M42, "4.1.1", "4.1.0", "17")]
-        mods, out, adds = plan([m42()], rows, spark={"2.13": ["4.2.0", "4.2.1", "4.3.0"]})
+        mods, out, adds = plan([m42()], rows, spark={"2.13": ["4.2.0", "4.2.1", "4.3.0"]}, par=parent("2.13.18", "3.4.1"))
         self.assertEqual(mods[0]["spark"], "4.2.1")
         self.assertEqual([r["spark"] for r in out], ["4.2.1", "4.1.1"])
         self.assertEqual(adds, ["spark 4.2.1 (spark-4.2_2.13)"])
 
-    def test_scala_and_hadoop_come_from_spark_parent(self):
-        mods, _, _ = plan([m42()], rows42(), spark={"2.13": ["4.2.1"]}, par=parent("2.13.19", "3.5.0"))
+    def test_scala_and_hadoop_follow_a_spark_parent_change(self):
+        mods, _, adds = plan([m42()], rows42(), spark={"2.13": ["4.2.1"]}, par=parent("2.13.19", "3.5.0"))
         self.assertEqual((mods[0]["scala_version"], mods[0]["hadoop"]), ("2.13.19", "3.5.0"))
+        self.assertEqual(adds, ["spark 4.2.1 (spark-4.2_2.13; scala 2.13.19; hadoop-aws 3.5.0)"])
+
+    def test_only_the_changed_value_is_reported(self):
+        mods, _, adds = plan([m42()], rows42(), spark={"2.13": ["4.2.1"]}, par=parent("2.13.18", "3.5.1"))
+        self.assertEqual((mods[0]["scala_version"], mods[0]["hadoop"]), ("2.13.18", "3.5.1"))
+        self.assertEqual(adds, ["spark 4.2.1 (spark-4.2_2.13; hadoop-aws 3.5.1)"])
+
+    def test_unchanged_spark_parent_leaves_the_module_alone(self):
+        # the module pins 3.4.1 while Spark's parent says 3.5.0 for both patches: no change, no note
+        mods, _, adds = plan([m42()], rows42(), spark={"2.13": ["4.2.1"]}, par=parent("2.13.18", "3.5.0",
+                             old=("4.2.0", "4.2.1"), old_values=("2.13.18", "3.5.0")))
+        self.assertEqual((mods[0]["hadoop"], adds), ("3.4.1", ["spark 4.2.1 (spark-4.2_2.13)"]))
 
     def test_parent_values_never_lower_the_module(self):
         mods, _, _ = plan([m42()], rows42(), spark={"2.13": ["4.2.1"]}, par=parent("2.13.8", "3.3.4"))
@@ -108,17 +123,29 @@ class DeltaPatchTest(unittest.TestCase):  # rule 3
         _, out, _ = plan([m42()], r, delta={"delta-spark_2.13": ["4.1.0", "4.1.1"]})
         self.assertEqual(out[0], row(M42, "4.2.0", "4.1.1", "17"))  # the module default is that artifact
 
-    def test_per_spark_artifact_first_with_key_order(self):
-        d = {"delta-spark_4.2_2.13": ["4.4.1", "4.4.2"], "delta-spark_2.13": ["4.4.1", "4.4.2"]}
-        _, out, _ = plan([m42()], rows42(), delta=d)
-        self.assertEqual(list(out[0]), ["module", "spark", "delta", "deltaArtifact", "jdk", "smoke"])
-        self.assertEqual({r["deltaArtifact"] for r in out}, {"delta-spark_4.2_2.13"})
+    def test_moved_pinned_row_gets_the_per_spark_artifact_after_delta(self):
+        rows = rows42() + [row(M42, "4.1.1", "4.3.0", "17")]
+        d = {"delta-spark_4.2_2.13": ["4.3.0", "4.3.1", "4.4.1"], "delta-spark_2.13": ["4.3.0", "4.4.1"]}
+        mods, out, _ = plan([m42()], rows, delta=d)
+        self.assertEqual(list(out[-1]), ["module", "spark", "delta", "deltaArtifact", "jdk", "smoke"])
+        self.assertEqual((out[-1]["delta"], out[-1]["deltaArtifact"]), ("4.3.1", "delta-spark_4.2_2.13"))
+        self.assertEqual(mods[0]["delta_artifact"], "delta-spark_2.13")  # the module itself did not move
 
-    def test_falls_back_to_the_unsuffixed_artifact(self):
+    def test_no_unsuffixed_fallback_when_the_per_spark_artifact_exists(self):
         d = {"delta-spark_4.2_2.13": ["4.4.1"], "delta-spark_2.13": ["4.4.1", "4.4.2"]}
-        _, out, _ = plan([m42()], rows42(), delta=d)
-        self.assertEqual(out[0]["delta"], "4.4.2")
-        self.assertNotIn("deltaArtifact", out[0])
+        mods, out, adds = plan([m42()], rows42(), delta=d)
+        self.assertEqual((mods[0]["delta"], out, adds), ("4.4.1", rows42(), []))
+
+    def test_moved_row_with_an_explicit_artifact_keeps_it_when_that_carries_the_version(self):
+        a = mod("4.1", "4.1.3", "4.4.1")
+        n = "spark-4.1_2.13"
+        rows = [row(n, "4.1.1", "4.1.0", "17", deltaArtifact="delta-spark_2.13"),
+                row(n, "4.1.1", "4.2.0", "17", deltaArtifact="delta-spark_2.13")]
+        d = {"delta-spark_4.1_2.13": ["4.1.0", "4.1.1", "4.2.0", "4.2.1", "4.4.1"],
+             "delta-spark_2.13": ["4.1.0", "4.1.1", "4.2.0"]}
+        _, out, _ = plan([a], rows, delta=d)
+        self.assertEqual(out[0], row(n, "4.1.1", "4.1.1", "17", deltaArtifact="delta-spark_2.13"))
+        self.assertEqual(out[1], row(n, "4.1.1", "4.2.1", "17"))  # the per-Spark artifact is this module's default
 
     def test_no_key_when_the_module_default_is_the_per_spark_artifact(self):
         a = mod("4.1", "4.1.3", "4.4.1")
@@ -173,11 +200,17 @@ class DeltaMinorTest(unittest.TestCase):  # rule 4
         mods, _, adds = plan([m], [], delta={"delta-spark_2.13": ["3.3.3", "4.0.1", "4.4.1"]})
         self.assertEqual((mods[0]["delta"], adds), ("3.3.3", []))
 
-    def test_copies_use_the_per_spark_artifact_when_it_has_the_version(self):
+    def test_default_becomes_the_per_spark_artifact_and_rows_carry_no_key(self):
         d = {"delta-spark_2.13": ["4.4.1", "4.5.0"], "delta-spark_4.2_2.13": ["4.4.1", "4.5.0"]}
-        _, out, _ = plan([m42()], rows42(), delta=d)
-        self.assertEqual(out[1], row(M42, "4.2.0", "4.5.0", "17", True, deltaArtifact="delta-spark_4.2_2.13"))
-        self.assertNotIn("deltaArtifact", out[0])
+        mods, out, _ = plan([m42()], rows42(), delta=d)
+        self.assertEqual(mods[0]["delta_artifact"], "delta-spark_4.2_2.13")
+        self.assertEqual(out[1], row(M42, "4.2.0", "4.5.0", "17", True))
+        self.assertTrue(all("deltaArtifact" not in r for r in out))
+
+    def test_per_spark_artifact_may_bring_a_new_major(self):
+        d = {"delta-spark_4.2_2.13": ["4.4.1", "5.0.0"]}
+        mods, _, adds = plan([m42()], rows42(), delta=d)
+        self.assertEqual((mods[0]["delta"], adds), ("5.0.0", ["delta 5.0.0 (spark-4.2_2.13)"]))
 
     def test_default_artifact_switches_when_only_the_per_spark_one_has_the_version(self):
         d = {"delta-spark_2.13": ["4.4.1"], "delta-spark_4.2_2.13": ["4.4.1", "4.5.0"]}
@@ -199,11 +232,6 @@ class DeltaMinorTest(unittest.TestCase):  # rule 4
         mods, out, _ = plan([m42()], rows42(), delta=d)
         self.assertEqual(mods[0]["delta_artifact"], "delta-spark_4.2_2.13")
         self.assertTrue(all("deltaArtifact" not in r and r["delta"] == "4.4.2" for r in out))
-
-    def test_default_is_kept_when_it_carries_the_version(self):
-        d = {"delta-spark_2.13": ["4.4.1", "4.5.0"], "delta-spark_4.2_2.13": ["4.4.1", "4.5.0"]}
-        mods, _, _ = plan([m42()], rows42(), delta=d)
-        self.assertEqual(mods[0]["delta_artifact"], "delta-spark_2.13")
 
     def test_copy_drops_delta_artifact_key(self):
         r = [row(M42, "4.2.0", "4.4.1", "17", True, deltaArtifact="delta-spark_2.13")]
@@ -241,8 +269,27 @@ class NewLineTest(unittest.TestCase):  # rule 5
 
     def test_template_is_the_newest_scala_2_13_module(self):
         a = mod("3.5", "3.5.3", "3.3.3", scala="2.12", art="delta-spark_2.12", java="8")
-        mods, _, _ = plan([m42(), a], rows42(), spark=self.S, delta=self.D)
-        self.assertEqual(mods[-1]["java"], "17")
+        mods, _, _ = plan([a, m42()], rows42(), spark=self.S, delta=self.D)
+        self.assertEqual((mods[-1]["minor"], mods[-1]["java"]), ("4.3", "17"))
+
+
+class GapTest(unittest.TestCase):
+    def test_missing_minor_between_modules_is_added_in_version_order(self):
+        a = mod("4.0", "4.0.4", "4.4.1")
+        ra = [row("spark-4.0_2.13", "4.0.4", "4.4.1", "17", True)]
+        s = {"2.13": ["4.0.4", "4.1.3", "4.2.0"]}
+        d = {"delta-spark_4.0_2.13": ["4.4.1"], "delta-spark_4.1_2.13": ["4.4.1"]}
+        mods, out, adds = plan([a, m42()], ra + rows42(), spark=s, delta=d)
+        self.assertEqual([m["minor"] for m in mods], ["4.0", "4.1", "4.2"])
+        self.assertEqual([r["module"] for r in out][:2], ["spark-4.0_2.13", "spark-4.1_2.13"])
+        self.assertEqual(adds, ["module spark-4.1_2.13 (spark 4.1.3, delta 4.4.1)"])
+
+    def test_lines_below_the_oldest_per_spark_4x_module_are_ignored(self):
+        a = mod("4.0", "4.0.4", "4.4.1")
+        s = {"2.13": ["3.4.4", "4.0.4"]}
+        d = {"delta-spark_4.0_2.13": ["4.4.1"], "delta-spark_3.4_2.13": ["3.9.0"]}
+        _, _, adds = plan([a], [], spark=s, delta=d)
+        self.assertEqual(adds, [])
 
 
 class OrderTest(unittest.TestCase):  # rule 6
@@ -251,7 +298,7 @@ class OrderTest(unittest.TestCase):  # rule 6
         mods = [m42()]
         s = {"2.13": ["4.2.1", "4.3.0"]}
         d = {"delta-spark_2.13": ["4.4.1", "4.4.2", "4.5.0"], "delta-spark_4.3_2.13": ["4.5.0"]}
-        _, out, adds = plan(mods, rows, spark=s, delta=d)
+        _, out, adds = plan(mods, rows, spark=s, delta=d, par=parent("2.13.18", "3.4.1", old=("4.2.0", "4.2.1")))
         self.assertEqual(adds, ["spark 4.2.1 (spark-4.2_2.13)", "delta 4.4.2 (spark-4.2_2.13)",
                                 "delta 4.5.0 (spark-4.2_2.13)", "module spark-4.3_2.13 (spark 4.3.0, delta 4.5.0)"])
         # the minor copied the patched rows (Spark 4.2.1, Delta 4.4.2), and the new module copied the 4.5.0 rows
@@ -400,15 +447,17 @@ class EndToEndTest(unittest.TestCase):
     def test_dry_run_prints_but_does_not_write(self):
         fake = fake_current()
         fake["org.apache.spark:spark-sql_2.13"].append("4.2.1")
+        fake["spark-parent:2.13:4.2.0"] = {"hadoop": "3.4.1", "scala": "2.13.18"}
         fake["spark-parent:2.13:4.2.1"] = {"hadoop": "3.5.0", "scala": "2.13.19"}
         before = snapshot(self.root)
         code, out = run_main(self.root, fake, "--dry-run")
-        self.assertEqual(out, "spark 4.2.1 (spark-4.2_2.13)\n")
+        self.assertEqual(out, "spark 4.2.1 (spark-4.2_2.13; scala 2.13.19; hadoop-aws 3.5.0)\n")
         self.assertEqual(snapshot(self.root), before)
 
     def test_spark_patch_edits_only_the_expected_lines(self):
         fake = fake_current()
         fake["org.apache.spark:spark-sql_2.13"].append("4.2.1")
+        fake["spark-parent:2.13:4.2.0"] = {"hadoop": "3.4.1", "scala": "2.13.18"}
         fake["spark-parent:2.13:4.2.1"] = {"hadoop": "3.5.0", "scala": "2.13.19"}
         before = snapshot(self.root)
         run_main(self.root, fake)
@@ -442,14 +491,58 @@ class EndToEndTest(unittest.TestCase):
         mods = render_tables.read_modules(self.root)
         self.assertEqual(mods[-1]["minor"], "4.3")
 
+    def test_two_new_lines_in_one_run(self):
+        fake = fake_current()
+        fake["org.apache.spark:spark-sql_2.13"] += ["4.3.0", "4.4.0"]
+        fake["io.delta:delta-spark_4.3_2.13"] = ["4.5.0"]
+        fake["io.delta:delta-spark_4.4_2.13"] = ["4.6.0"]
+        fake["spark-parent:2.13:4.3.0"] = {"hadoop": "3.5.0", "scala": "2.13.19"}
+        fake["spark-parent:2.13:4.4.0"] = {"hadoop": "3.5.1", "scala": "2.13.19"}
+        code, out = run_main(self.root, fake)
+        self.assertEqual(out.splitlines(), ["module spark-4.3_2.13 (spark 4.3.0, delta 4.5.0)",
+                                            "module spark-4.4_2.13 (spark 4.4.0, delta 4.6.0)"])
+        mods = render_tables.read_modules(self.root)
+        self.assertEqual([m["minor"] for m in mods[-2:]], ["4.3", "4.4"])
+        self.assertEqual(mods[-1]["hadoop"], "3.5.1")
+        self.assertEqual(mods[-1]["delta"], "4.6.0")
+        log = (self.root / "CHANGELOG.md").read_text()
+        self.assertIn("gluecat-spark-4.3_2.13", log)
+        self.assertIn("gluecat-spark-4.4_2.13", log)
+        self.assertEqual(run_main(self.root, fake)[1].count("module "), 0)  # nothing left to do
+
+    def test_a_failure_while_computing_writes_nothing(self):
+        fake = fake_current()
+        fake["org.apache.spark:spark-sql_2.13"] += ["4.3.0"]
+        fake["io.delta:delta-spark_4.3_2.13"] = ["4.5.0"]  # no spark-parent entry: the run exits
+        before = snapshot(self.root)
+        with self.assertRaises(SystemExit):
+            run_main(self.root, fake)
+        self.assertEqual(snapshot(self.root), before)
+
     def test_network_failure_exits_non_zero(self):
         with mock.patch.object(discover, "RETRY_SECONDS", 0), \
                 mock.patch("urllib.request.urlopen", side_effect=OSError("down")), \
                 mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("DISCOVER_FAKE_MAVEN", None)
-            with self.assertRaises(SystemExit) as cm:
-                discover.main([], root=self.root)
+            with mock.patch("urllib.request.urlopen", side_effect=OSError("down")) as urlopen:
+                with self.assertRaises(SystemExit) as cm:
+                    discover.fetch_versions("io.delta", "delta-spark_2.13")
+            self.assertEqual(urlopen.call_count, 2)
             self.assertNotEqual(cm.exception.code, 0)
+
+    def test_404_means_the_artifact_does_not_exist(self):
+        err = urllib.error.HTTPError("u", 404, "Not Found", {}, None)
+        with mock.patch.dict(os.environ, {}), mock.patch("urllib.request.urlopen", side_effect=err) as urlopen:
+            os.environ.pop("DISCOVER_FAKE_MAVEN", None)
+            self.assertEqual(discover.fetch_versions("io.delta", "delta-spark_4.9_2.13"), [])
+            self.assertEqual(urlopen.call_count, 1)
+
+    def test_spark_parent_values_are_validated(self):
+        for bad in ({"hadoop": "3.5.0-SNAPSHOT", "scala": "2.13.19"}, {"hadoop": "3.5.0", "scala": "2.12.18"},
+                    {"hadoop": "${hadoop.version}", "scala": "2.13.19"}):
+            with mock.patch.dict(os.environ, {"DISCOVER_FAKE_MAVEN": json.dumps({"spark-parent:2.13:4.3.0": bad})}):
+                with self.assertRaises(SystemExit):
+                    discover.fetch_spark_parent("2.13", "4.3.0")
 
 
 if __name__ == "__main__":
