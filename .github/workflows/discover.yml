@@ -3,8 +3,10 @@
 # here: the pull request triggers ci.yml itself (a ci.yml dispatch with the full
 # matrix is the fallback when no run shows up) and auto-merges once `ci-ok` is
 # green. Each run also repairs an open discovery pull request (rebase when
-# behind, close and redo when conflicting). Publishing stays with the release
-# tags.
+# behind; close and redo when conflicting, if the bot wrote every commit; rerun a
+# failed CI once, then fail so the owner gets the email) and dispatches pages.yml
+# when no run followed the latest documentation commit. Publishing stays with the
+# release tags.
 name: discover
 
 on:
@@ -31,28 +33,71 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - name: Publish the site when no Pages run followed the latest documentation commit
+        # A merge that touched the documentation normally triggers pages.yml itself; this only covers a merge that
+        # triggered nothing. Any Pages run created since that commit counts, whatever its status.
+        run: |
+          set -euo pipefail
+          since=""
+          for path in README.md docs/site CHANGELOG.md; do
+            date=$(gh api "repos/$GITHUB_REPOSITORY/commits?path=$path&sha=main&per_page=1" -q '.[0].commit.committer.date // empty')
+            if [[ "$date" > "$since" ]]; then since="$date"; fi
+          done
+          [ -n "$since" ] || exit 0
+          n=$(gh run list -w pages.yml -b main --limit 50 --json createdAt -q "[.[] | select(.createdAt >= \"$since\")] | length")
+          if [ "$n" = 0 ]; then
+            echo "No Pages run since $since: dispatching pages.yml on main."
+            gh workflow run pages.yml --ref main
+          fi
       - name: Repair an open discovery pull request or clear stale branches
         id: open
         run: |
           set -euo pipefail
+          bot='41898282+github-actions[bot]@users.noreply.github.com'
+          # Closes a conflicting or unrebasable pull request when the bot wrote every commit on it; anything else
+          # holds a person's work, which a redo would throw away.
+          redo() {
+            number=$(gh pr view "$1" --json number -q .number)
+            others=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number/commits" --paginate --jq ".[].commit.author.email | select(. != \"$bot\")")
+            if [ -n "$others" ]; then
+              echo "::error::Discovery pull request #$number ($1) cannot be rebased and has commits that are not from github-actions[bot]; resolve it by hand."
+              exit 1
+            fi
+            gh pr close "$1" --delete-branch
+          }
           skip=false
-          for branch in $(gh pr list --state open --json headRefName --jq '.[].headRefName | select(startswith("discover/"))'); do
+          for branch in $(gh pr list --state open --json headRefName,isCrossRepository --jq '.[] | select((.isCrossRepository|not) and (.headRefName|startswith("discover/"))) | .headRefName'); do
             state=$(gh pr view "$branch" --json mergeStateStatus -q .mergeStateStatus)
             echo "Open discovery pull request on $branch ($state)."
             case "$state" in
               DIRTY)
-                gh pr close "$branch" --delete-branch
+                redo "$branch"
                 continue
                 ;;
               BEHIND)
                 old=$(gh pr view "$branch" --json headRefOid -q .headRefOid)
-                gh pr update-branch "$branch" --rebase
+                if ! gh pr update-branch "$branch" --rebase; then
+                  redo "$branch"
+                  continue
+                fi
                 for _ in $(seq 12); do
                   [ "$(gh pr view "$branch" --json headRefOid -q .headRefOid)" != "$old" ] && break
                   sleep 5
                 done
                 ;;
             esac
+            sha=$(gh pr view "$branch" --json headRefOid -q .headRefOid)
+            read -r run conclusion attempt < <(gh run list -w ci.yml -c "$sha" --limit 1 --json databaseId,conclusion,attempt -q '.[] | "\(.databaseId) \(.conclusion) \(.attempt)"' || true)
+            if [ "${conclusion:-}" = failure ]; then
+              if [ "$attempt" -le 1 ]; then
+                echo "CI run $run failed on $branch: rerunning its failed jobs once."
+                gh run rerun "$run" --failed
+                skip=true
+                continue
+              fi
+              echo "::error::Discovery pull request on $branch: CI run $run failed again (attempt $attempt). Fix the code, pin the rows to the old Spark patch, or decline the update in scripts/discover-ignore.txt."
+              exit 1
+            fi
             scripts/ensure_ci.sh "$branch"
             gh pr merge "$branch" --auto --squash --delete-branch
             skip=true
@@ -82,7 +127,7 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           additions="$RUNNER_TEMP/additions.txt"
           branch="discover/$(date -u +%Y%m%d)"
-          summary=$(paste -sd';' "$additions" | sed 's/;/; /g')
+          summary=$(awk '{printf "%s%s", (NR>1?"; ":""), $0}' "$additions")
           subject="build: $summary"
           if [ "${#subject}" -gt 72 ]; then
             subject="${subject:0:69}..."
@@ -101,7 +146,7 @@ jobs:
               echo "A release is needed to publish the new artifact."
               echo
             fi
-            echo "CI runs the full Spark x Delta x JDK matrix on this pull request. It merges itself once every row passes. A failing row has to be fixed or trimmed by hand before the pull request can merge."
+            echo "CI runs the full Spark x Delta x JDK matrix on this pull request. It merges itself once every row passes. A failing row has to be fixed in code, pinned to the old Spark patch, or the update declined in scripts/discover-ignore.txt before the pull request can merge."
           } > "$RUNNER_TEMP/body.md"
           gh pr create --base main --head "$branch" --title "$subject" --body-file "$RUNNER_TEMP/body.md"
           scripts/ensure_ci.sh "$branch"
