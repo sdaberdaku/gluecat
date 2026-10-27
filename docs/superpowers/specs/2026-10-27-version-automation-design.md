@@ -37,6 +37,10 @@
      rows get `"deltaArtifact": "<that artifact>"` (after `delta` in the key order) unless it is the module's
      default artifact, and fall back to the artifact they already use only when the per-Spark artifact lacks the
      version.
+   - when the module's default `delta.artifact` lacks the version it moves to and the per-Spark artifact has it,
+     the module's default becomes the per-Spark artifact (the property line is added after `delta.version` if the
+     module inherits the parent's default); rows that inherited the old default and whose Delta the new one lacks
+     name the old artifact explicitly.
 4. New Delta minor (e.g. 4.5.0) with an artifact for a module's Spark minor:
    - copy that module's current rows (module `spark.version`, current Delta; one per JDK) with the new Delta; the
      copied rows keep their `smoke` flags and get `deltaArtifact` under the same per-Spark-first rule as rule 3;

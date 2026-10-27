@@ -85,6 +85,19 @@ def with_artifact(r, art, m):
     return out
 
 
+def switch_default(m, rows, new, delta_versions):
+    """Make new the module's default artifact. Rows naming it drop the key; rows that inherited the old default
+    but whose Delta the new one lacks name the old artifact."""
+    old, m["delta_artifact"] = m["delta_artifact"], new
+    have = set(delta_versions.get(new, []))
+    for i, r in enumerate(rows):
+        if r["module"] == name(m):
+            if r.get("deltaArtifact") == new:
+                rows[i] = {k: v for k, v in r.items() if k != "deltaArtifact"}
+            elif "deltaArtifact" not in r and r["delta"] not in have:
+                rows[i] = with_artifact(r, old, m)
+
+
 def plan_updates(modules, rows, spark_versions, delta_versions, spark_parent):
     """Apply rules 2-6. spark_versions: {scala binary: [versions]}; delta_versions: {artifact: [versions]};
     spark_parent(scala binary, spark version) -> {"hadoop", "scala"}. Returns (modules, rows, additions)."""
@@ -125,6 +138,8 @@ def plan_updates(modules, rows, spark_versions, delta_versions, spark_parent):
         hit = patch_from(m, delta_versions, m["delta"], m["delta_artifact"])
         if hit:
             m["delta"] = hit[0]
+            if hit[0] not in delta_versions.get(m["delta_artifact"], []):
+                switch_default(m, rows, hit[1], delta_versions)
             found.setdefault(hit[0], [])
             if name(m) not in found[hit[0]]:
                 found[hit[0]].append(name(m))
@@ -149,6 +164,8 @@ def plan_updates(modules, rows, spark_versions, delta_versions, spark_parent):
             last = max(i for i, r in enumerate(rows) if r["module"] == name(m))
             rows[last + 1:last + 1] = copies
             m["delta"] = new
+            if new not in delta_versions.get(m["delta_artifact"], []):
+                switch_default(m, rows, art, delta_versions)
             found.setdefault(new, []).append(name(m))
     report("delta", found)
 
@@ -209,7 +226,11 @@ def new_module_pom(newest_pom_text, minor, spark, delta, scala, hadoop):
                         ("scala.version", scala), ("hadoop.aws.version", hadoop)):
         text = edit_pom(text, prop, value)
     scala_bin = re.search(r"<scala\.binary\.version>([^<]+)<", text).group(1)
-    artifact = f"delta-spark_{minor}_{scala_bin}"
+    return set_delta_artifact(text, f"delta-spark_{minor}_{scala_bin}")
+
+
+def set_delta_artifact(text, artifact):
+    """Set the module's delta.artifact, adding the line after delta.version when the module inherits the default."""
     if "<delta.artifact>" in text:
         return edit_pom(text, "delta.artifact", artifact)
     return re.sub(r"^( *)(<delta\.version>.*)$", rf"\1\2\n\1<delta.artifact>{artifact}</delta.artifact>", text,
@@ -298,6 +319,8 @@ def apply(root, old_modules, modules, rows, old_rows):
             for key, prop in POM_PROPS.items():
                 if m[key] != old_modules[i][key]:
                     text = edit_pom(text, prop, m[key])
+            if m["delta_artifact"] != old_modules[i]["delta_artifact"]:
+                text = set_delta_artifact(text, m["delta_artifact"])
         else:
             prev = modules[i - 1]
             text = new_module_pom((root / "modules" / name(prev) / "pom.xml").read_text(), m["minor"], m["spark"],

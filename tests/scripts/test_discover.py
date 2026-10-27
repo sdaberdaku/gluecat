@@ -179,6 +179,32 @@ class DeltaMinorTest(unittest.TestCase):  # rule 4
         self.assertEqual(out[1], row(M42, "4.2.0", "4.5.0", "17", True, deltaArtifact="delta-spark_4.2_2.13"))
         self.assertNotIn("deltaArtifact", out[0])
 
+    def test_default_artifact_switches_when_only_the_per_spark_one_has_the_version(self):
+        d = {"delta-spark_2.13": ["4.4.1"], "delta-spark_4.2_2.13": ["4.4.1", "4.5.0"]}
+        rows = rows42() + [row(M42, "4.2.0", "4.3.1", "17", deltaArtifact="delta-spark_2.13")]
+        mods, out, _ = plan([m42()], rows, delta=d)
+        self.assertEqual((mods[0]["delta"], mods[0]["delta_artifact"]), ("4.5.0", "delta-spark_4.2_2.13"))
+        self.assertTrue(all("deltaArtifact" not in r for r in out if r["delta"] != "4.3.1"))
+        old = [r for r in out if r["delta"] == "4.3.1"]
+        self.assertEqual(old[0]["deltaArtifact"], "delta-spark_2.13")  # explicit older row keeps its artifact
+
+    def test_inheriting_rows_missing_from_the_new_default_name_the_old_one(self):
+        d = {"delta-spark_2.13": ["4.3.1", "4.4.1"], "delta-spark_4.2_2.13": ["4.4.1", "4.5.0"]}
+        rows = [row(M42, "4.2.0", "4.3.1", "17"), row(M42, "4.2.0", "4.4.1", "17", True)]
+        _, out, _ = plan([m42()], rows, delta=d)
+        self.assertEqual(out[0], row(M42, "4.2.0", "4.3.1", "17", deltaArtifact="delta-spark_2.13"))
+
+    def test_delta_patch_also_switches_the_default(self):
+        d = {"delta-spark_2.13": ["4.4.1"], "delta-spark_4.2_2.13": ["4.4.1", "4.4.2"]}
+        mods, out, _ = plan([m42()], rows42(), delta=d)
+        self.assertEqual(mods[0]["delta_artifact"], "delta-spark_4.2_2.13")
+        self.assertTrue(all("deltaArtifact" not in r and r["delta"] == "4.4.2" for r in out))
+
+    def test_default_is_kept_when_it_carries_the_version(self):
+        d = {"delta-spark_2.13": ["4.4.1", "4.5.0"], "delta-spark_4.2_2.13": ["4.4.1", "4.5.0"]}
+        mods, _, _ = plan([m42()], rows42(), delta=d)
+        self.assertEqual(mods[0]["delta_artifact"], "delta-spark_2.13")
+
     def test_copy_drops_delta_artifact_key(self):
         r = [row(M42, "4.2.0", "4.4.1", "17", True, deltaArtifact="delta-spark_2.13")]
         _, out, _ = plan([m42()], r, delta=self.D)
@@ -392,6 +418,15 @@ class EndToEndTest(unittest.TestCase):
         pom = after["modules/spark-4.2_2.13/pom.xml"].decode()
         self.assertIn("<spark.version>4.2.1</spark.version>", pom)
         self.assertIn("<hadoop.aws.version>3.5.0</hadoop.aws.version>", pom)
+
+    def test_default_artifact_switch_adds_the_property_to_the_pom(self):
+        fake = fake_current()
+        fake["io.delta:delta-spark_4.2_2.13"] = ["4.4.1", "4.5.0"]
+        run_main(self.root, fake)
+        pom = (self.root / "modules/spark-4.2_2.13/pom.xml").read_text()
+        self.assertIn("<delta.version>4.5.0</delta.version>\n    <delta.artifact>delta-spark_4.2_2.13"
+                      "</delta.artifact>\n", pom)
+        self.assertEqual(render_tables.read_modules(self.root)[4]["delta_artifact"], "delta-spark_4.2_2.13")
 
     def test_new_line_writes_module_parent_matrix_and_changelog(self):
         fake = fake_current()
