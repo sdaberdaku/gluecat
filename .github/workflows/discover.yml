@@ -85,7 +85,7 @@ jobs:
           summary=$(paste -sd';' "$additions" | sed 's/;/; /g')
           subject="build: $summary"
           if [ "${#subject}" -gt 72 ]; then
-            subject="${subject:0:71}…"
+            subject="${subject:0:69}..."
           fi
           python scripts/render_tables.py
           git switch -c "$branch"

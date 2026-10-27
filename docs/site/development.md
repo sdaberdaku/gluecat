@@ -40,6 +40,15 @@ Unit tests are `*Suite` classes (surefire, run against `target/classes`); integr
 (failsafe, run against the module's jar) and use MiniStack, a local AWS emulator for Glue, STS and IAM
 (`ministackorg/ministack`, version pinned in the `Makefile` and `ci.yml`). Real AWS is never used.
 
+## Dependency updates
+
+Renovate (`renovate.json`) opens at most four pull requests a week, on Monday mornings, for GitHub Actions, Maven
+plugins and test libraries, and the container images in `ci.yml`, `docker/docker-compose.yml` and the `Makefile`.
+Patch, pin and digest updates and all Action updates merge by themselves once `ci-ok` passes; minor updates arrive as
+one grouped pull request, and major ones (including every new Trino release, whose tags are plain integers) wait for
+review. Renovate never touches Spark, Delta, Scala, hadoop-aws or the AWS SDK versions: the discovery workflow owns
+the first four, and the SDK is the `provided` floor. The `spark-with-glue` legacy image is pinned by hand.
+
 ## Compatibility containers
 
 `docker/docker-compose.yml` starts MiniStack, Trino 484 and a legacy Spark 4.1 (Spark 4.1.3 with the Glue Hive
