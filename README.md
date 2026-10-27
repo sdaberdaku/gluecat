@@ -39,6 +39,7 @@ model to Glue tables in general and to Delta tables in particular. Its option na
 
 One artifact per Spark minor version and Scala version, group `io.github.sdaberdaku`:
 
+<!-- artifacts:start -->
 | Artifact | Spark | Scala | Java bytecode | JDKs tested | Delta tested |
 |---|---|---|---|---|---|
 | `gluecat-spark-3.5_2.12` | 3.5.3 and later 3.5 | 2.12 | 8 | 8, 11, 17 | 3.3.3 |
@@ -46,6 +47,7 @@ One artifact per Spark minor version and Scala version, group `io.github.sdaberd
 | `gluecat-spark-4.0_2.13` | 4.0.x | 2.13 | 17 | 17, 21 | 4.0.1, 4.1.0, 4.2.0, 4.3.1, 4.4.1 |
 | `gluecat-spark-4.1_2.13` | 4.1.x | 2.13 | 17 | 17, 21 | 4.1.0 and 4.2.0 (on Spark 4.1.1), 4.3.1, 4.4.1 |
 | `gluecat-spark-4.2_2.13` | 4.2.x | 2.13 | 17 | 17, 21, 25 | 4.4.1 |
+<!-- artifacts:end -->
 
 Spark 3.5.0 to 3.5.2 are not supported: they reject the tables this catalog returns for non-Delta data, and
 `initialize` fails on them. `matrix.json` lists every Spark, Delta and JDK combination CI runs.
