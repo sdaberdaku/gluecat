@@ -1,0 +1,99 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "enabledManagers": [
+    "github-actions",
+    "maven",
+    "docker-compose",
+    "custom.regex"
+  ],
+  "schedule": [
+    "before 6am on monday"
+  ],
+  "prConcurrentLimit": 4,
+  "labels": [
+    "dependencies"
+  ],
+  "platformAutomerge": true,
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^Makefile$/"
+      ],
+      "matchStrings": [
+        "MINISTACK_IMAGE := (?<depName>[^:\\s]+):(?<currentValue>\\S+)"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Spark, Delta, Scala and hadoop-aws versions belong to the discovery workflow; the AWS SDK is the provided floor.",
+      "matchPackageNames": [
+        "org.apache.spark:**",
+        "io.delta:**",
+        "org.scala-lang:**",
+        "org.apache.hadoop:**",
+        "software.amazon.awssdk:**"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "The tag encodes the Spark version used by the legacy compatibility suite, and is not semver.",
+      "matchPackageNames": [
+        "ghcr.io/sdaberdaku/spark-with-glue"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "JDK and Python versions are the supported toolchain, the runner image is ubuntu-latest, and gluecat-parent is this project.",
+      "matchDepNames": [
+        "java-jdk",
+        "python",
+        "ubuntu",
+        "io.github.sdaberdaku:gluecat-parent"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Patch, pin and digest updates arrive as one pull request and merge once ci-ok passes.",
+      "groupName": "patch updates",
+      "matchUpdateTypes": [
+        "patch",
+        "pin",
+        "pinDigest",
+        "digest"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Minor updates arrive as one pull request that a person reviews.",
+      "groupName": "minor updates",
+      "matchUpdateTypes": [
+        "minor"
+      ],
+      "automerge": false
+    },
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchDepTypes": [
+        "action"
+      ],
+      "automerge": true,
+      "description": "GitHub Actions updates of any size are their own pull request and merge once ci-ok passes.",
+      "groupName": "github actions"
+    },
+    {
+      "description": "Trino tags are integers, so every release is a major update; a person reviews it.",
+      "matchPackageNames": [
+        "trinodb/trino"
+      ],
+      "automerge": false
+    }
+  ]
+}

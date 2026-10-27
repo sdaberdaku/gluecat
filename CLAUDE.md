@@ -19,6 +19,12 @@ reads other data-source tables, without the Hive metastore client. Works as a na
 - One Maven module per artifact under `modules/spark-<minor>_<scala>/` (Spark 3.5 on Scala 2.12 and 2.13, Spark
   4.x on 2.13). Each module pins its Spark, Delta and Scala versions as properties; CI overrides them per matrix row.
 - `matrix.json` is the single source of the Spark × Delta × JDK test matrix.
+- `scripts/discover.py` (run daily by `discover.yml`) owns the Spark, Delta, Scala and hadoop-aws versions in the
+  module POMs and in `matrix.json`; do not edit them by hand without a reason, and after any edit rerun
+  `python scripts/render_tables.py` (it renders the Artifacts tables and the example command, and checks that every
+  module has a row on its own versions). `scripts/discover-ignore.txt` declines updates; the end-to-end tests of the
+  scripts run on the frozen tree in `tests/scripts/fixtures/repo`. Run them with
+  `python -m unittest discover -s tests/scripts`.
 - The AWS SDK v2 (`glue`, `sts`) is `provided` at version 2.24.6; the jar contains no SDK classes.
 
 ## Commands

@@ -1,0 +1,6 @@
+# Updates that discovery must not propose. One entry per line, "#" starts a comment.
+#   spark 4.3                      a whole Spark line
+#   spark 4.2.1                    one Spark version
+#   delta 4.5.0                    one Delta version, for every module
+#   delta 4.5.0 spark-4.0_2.13     one Delta version, for one module
+#   module spark-4.3_2.13          do not create this module

@@ -100,14 +100,26 @@ jobs:
       - run: mkdir -p docs/site/assets && cp docs/logo/gluecat-icon.png docs/logo/gluecat-banner.jpg docs/site/assets/ && cp CHANGELOG.md docs/site/changelog.md
       - run: mkdocs build --strict
 
+  # The Artifacts tables in README.md and docs/site/index.md are generated from the module POMs and matrix.json.
+  scripts:
+    needs: plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover -s tests/scripts -v
+      - run: python scripts/render_tables.py --check
+
   # One status check for branch protection: green only when every matrix row, the compatibility suites and the docs
   # build succeeded. It always runs: a skipped required check counts as passing, so on a draft (every need skipped) it
   # must run and fail; a skipped or cancelled need is a failure here.
   ci-ok:
-    needs: [test, compat, docs]
+    needs: [test, compat, docs, scripts]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - run: |
-          echo "test=${{ needs.test.result }} compat=${{ needs.compat.result }} docs=${{ needs.docs.result }}"
-          test "${{ needs.test.result }}" = success -a "${{ needs.compat.result }}" = success -a "${{ needs.docs.result }}" = success
+          echo "test=${{ needs.test.result }} compat=${{ needs.compat.result }} docs=${{ needs.docs.result }} scripts=${{ needs.scripts.result }}"
+          test "${{ needs.test.result }}" = success -a "${{ needs.compat.result }}" = success -a "${{ needs.docs.result }}" = success -a "${{ needs.scripts.result }}" = success
