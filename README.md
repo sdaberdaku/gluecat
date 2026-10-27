@@ -67,13 +67,14 @@ gluecat needs the AWS SDK v2 modules `glue` and `sts` on the Spark classpath; th
 - Spark 4.x: when `hadoop-aws` (S3A) is on the classpath, the `software.amazon.awssdk:bundle` it depends on already
   contains both. Otherwise add them as for Spark 3.5.
 
-Example for Spark 4.1 with Delta 4.4.1 and S3A: `hadoop-aws` (the version of Spark's Hadoop, 3.4.2 for Spark 4.1.3)
-brings the SDK bundle, and mapping `s3://` to S3A keeps the table locations in Glue as `s3://`, the form Athena reads:
+<!-- example:start -->
+Example for Spark 4.1 with Delta 4.4.1 and S3A: `hadoop-aws` (the same version as the Hadoop jars in your Spark distribution, `<hadoop-version>` below) brings the SDK bundle, and mapping `s3://` to S3A keeps the table locations in Glue as `s3://`, the form Athena reads:
 
 ```
-spark-sql --packages io.github.sdaberdaku:gluecat-spark-4.1_2.13:1.1.0,io.delta:delta-spark_4.1_2.13:4.4.1,org.apache.hadoop:hadoop-aws:3.4.2 \
+spark-sql --packages io.github.sdaberdaku:gluecat-spark-4.1_2.13:1.1.0,io.delta:delta-spark_4.1_2.13:4.4.1,org.apache.hadoop:hadoop-aws:<hadoop-version> \
   --conf spark.hadoop.fs.s3.impl=org.apache.hadoop.fs.s3a.S3AFileSystem
 ```
+<!-- example:end -->
 
 ### As named catalogs
 

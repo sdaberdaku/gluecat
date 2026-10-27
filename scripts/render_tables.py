@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Render the Artifacts table of README.md and docs/site/index.md from the module POMs and matrix.json.
+"""Render the generated blocks of the documentation from the module POMs, matrix.json and CHANGELOG.md.
+
+The Artifacts table (README.md, docs/site/index.md) and the Spark 4.1 example command (README.md,
+docs/site/quickstart.md) sit between marker comments. The gluecat version in the example is the newest released
+heading of CHANGELOG.md: the parent POM carries the next SNAPSHOT version, and a release moves the heading, not
+the other way round.
+
+The module/row invariant is checked first: every module has at least one row on its own spark.version and
+delta.version, and every row names an existing module.
 
 Without arguments the files are rewritten; with --check nothing is written and the exit code is 1 when a file differs.
 """
@@ -9,8 +17,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-FILES = ("README.md", "docs/site/index.md")
-START, END = "<!-- artifacts:start -->", "<!-- artifacts:end -->"
+TABLE_FILES = ("README.md", "docs/site/index.md")
+EXAMPLE_FILES = ("README.md", "docs/site/quickstart.md")
+EXAMPLE_MINOR = "4.1"
 HEADER = ["| Artifact | Spark | Scala | Java bytecode | JDKs tested | Delta tested |", "|---|---|---|---|---|---|"]
 PROPS = {"spark": "spark.version", "minor": "spark.minor", "delta": "delta.version",
          "scala": "scala.binary.version", "java": "java.release", "scala_version": "scala.version",
@@ -89,25 +98,68 @@ def table(modules, rows):
     return "\n".join(lines)
 
 
-def replace_block(text, rendered):
-    i, j = text.find(START), text.find(END)
+def validate(modules, rows):
+    """Raise ValueError naming the module when the rows and the module POMs disagree."""
+    names = {f"spark-{m['minor']}_{m['scala']}": m for m in modules}
+    for r in rows:
+        if r["module"] not in names:
+            raise ValueError(f"matrix.json: row {r} names the module {r['module']}, which does not exist")
+    for n, m in names.items():
+        if not any(r["module"] == n and r["spark"] == m["spark"] and r["delta"] == m["delta"] for r in rows):
+            raise ValueError(f"{n}: no matrix.json row runs its own spark.version {m['spark']} with its "
+                             f"delta.version {m['delta']}")
+
+
+def released_version(changelog):
+    found = re.search(r"^## (\d+\.\d+\.\d+) - ", changelog, flags=re.M)
+    if not found:
+        raise ValueError("CHANGELOG.md: no released version heading")
+    return found.group(1)
+
+
+def example(modules, version):
+    """The quickstart command for the Spark EXAMPLE_MINOR module with Delta and gluecat versions filled in."""
+    m = next((x for x in modules if x["minor"] == EXAMPLE_MINOR and x["scala"] == "2.13"), None)
+    if m is None:
+        raise ValueError(f"no Spark {EXAMPLE_MINOR} Scala 2.13 module for the example command")
+    return (
+        f"Example for Spark {EXAMPLE_MINOR} with Delta {m['delta']} and S3A: `hadoop-aws` (the same version as the Hadoop "
+        "jars in your Spark distribution, `<hadoop-version>` below) brings the SDK bundle, and mapping `s3://` to S3A "
+        "keeps the table locations in Glue as `s3://`, the form Athena reads:\n\n```\n"
+        f"spark-sql --packages io.github.sdaberdaku:gluecat-spark-{m['minor']}_{m['scala']}:{version},"
+        f"io.delta:{m['delta_artifact']}:{m['delta']},org.apache.hadoop:hadoop-aws:<hadoop-version> \\\n"
+        "  --conf spark.hadoop.fs.s3.impl=org.apache.hadoop.fs.s3a.S3AFileSystem\n```")
+
+
+def replace_block(text, rendered, tag="artifacts"):
+    start, end = f"<!-- {tag}:start -->", f"<!-- {tag}:end -->"
+    i, j = text.find(start), text.find(end)
     if i < 0 or j < i:
-        raise ValueError("artifacts:start / artifacts:end markers not found")
-    return text[:i + len(START)] + "\n" + rendered + "\n" + text[j:]
+        raise ValueError(f"{tag}:start / {tag}:end markers not found")
+    return text[:i + len(start)] + "\n" + rendered + "\n" + text[j:]
 
 
 def main(argv=None):
     check = "--check" in (sys.argv[1:] if argv is None else argv)
-    rendered = table(read_modules(ROOT), read_rows(ROOT))
+    modules, rows = read_modules(ROOT), read_rows(ROOT)
+    try:
+        validate(modules, rows)
+    except ValueError as e:
+        print(f"invalid: {e}", file=sys.stderr)
+        return 1
+    blocks = (("artifacts", table(modules, rows), TABLE_FILES),
+              ("example", example(modules, released_version((ROOT / "CHANGELOG.md").read_text())), EXAMPLE_FILES))
     stale = []
-    for f in FILES:
-        path = ROOT / f
-        old = path.read_text()
-        new = replace_block(old, rendered)
-        if new != old:
-            stale.append(f)
-            if not check:
-                path.write_text(new)
+    for tag, rendered, files in blocks:
+        for f in files:
+            path = ROOT / f
+            old = path.read_text()
+            new = replace_block(old, rendered, tag)
+            if new != old:
+                stale.append(f)
+                if not check:
+                    path.write_text(new)
+    stale = sorted(set(stale))
     if check and stale:
         print(f"stale: {', '.join(stale)}; run python scripts/render_tables.py", file=sys.stderr)
         return 1
