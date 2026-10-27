@@ -44,11 +44,33 @@ Unit tests are `*Suite` classes (surefire, run against `target/classes`); integr
 
 Renovate (`renovate.json`) opens pull requests on Monday mornings for GitHub Actions, Maven plugins and test
 libraries, and the container images in `ci.yml`, `docker/docker-compose.yml` and the `Makefile`, and keeps at most
-four of them open at a time. Patch, pin and digest updates, and GitHub Actions updates of any size, merge by
-themselves once `ci-ok` passes; minor updates arrive as
-one grouped pull request, and major ones (including every new Trino release, whose tags are plain integers) wait for
-review. Renovate never touches Spark, Delta, Scala, hadoop-aws or the AWS SDK versions: the discovery workflow owns
-the first four, and the SDK is the `provided` floor. The `spark-with-glue` legacy image is pinned by hand.
+four of them open at a time. Patch, pin and digest updates arrive as one "patch updates" pull request that merges
+itself once `ci-ok` passes. Minor updates arrive as one "minor updates" pull request that a person reviews. GitHub
+Actions updates of any size are their own pull request and merge by themselves. Major updates wait for review,
+including every new Trino release, whose tags are plain integers. Renovate never touches Spark, Delta, Scala,
+hadoop-aws or the AWS SDK versions: the discovery workflow owns the first four, and the SDK is the `provided` floor.
+The `spark-with-glue` legacy image is pinned by hand.
+
+## Discovery
+
+`discover.yml` runs every day at 05:30 UTC. It asks Maven Central for new Spark and Delta releases, runs
+`scripts/discover.py`, and opens a pull request that updates the module POMs, `matrix.json` and the version tables
+(`scripts/render_tables.py` renders the tables and the example command in the README and quickstart). The pull
+request runs the full matrix and merges itself once `ci-ok` is green. The same run repairs an open discovery pull
+request: it rebases one that is behind, closes and redoes one that conflicts (only when the bot wrote every commit),
+reruns a failed CI once, and fails with an error naming the pull request when the second run fails too, which sends
+the owner an email. It also dispatches `pages.yml` when no Pages run followed the latest documentation commit.
+
+`scripts/discover.py` owns the Spark, Delta, Scala and hadoop-aws versions in the module POMs and in `matrix.json`.
+Every module keeps at least one row on its own Spark and Delta versions, and every row names an existing module;
+`python scripts/render_tables.py --check` (run by CI) fails with the module's name otherwise. After editing those
+files by hand, rerun `python scripts/render_tables.py`.
+
+When a discovery pull request fails, fix the code, or pin the failing rows to the old Spark patch in `matrix.json`.
+Removing rows by hand does not stick: the next run adds them back. To decline an update, add it to
+`scripts/discover-ignore.txt` (one entry per line, `#` starts a comment; the file explains the formats): `spark 4.3`,
+`spark 4.2.1`, `delta 4.5.0`, `delta 4.5.0 spark-4.0_2.13` or `module spark-4.3_2.13`. A new module is not
+published by the pull request. It needs a release tag, which includes it in the next release.
 
 ## Compatibility containers
 

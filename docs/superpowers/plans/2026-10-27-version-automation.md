@@ -1,5 +1,7 @@
 # gluecat version automation Implementation Plan
 
+This plan was executed on branch `feat/version-automation`. Where the task text below differs from the design spec, the spec's "Decided" and "Rulings during execution" sections supersede it (per-Spark Delta artifacts, per-module addition lines, the module/row invariant, `discover-ignore.txt`, the frozen fixture tree for the end-to-end tests, and the Renovate patch and minor groups).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Discovery keeps Spark, Delta, Scala and hadoop-aws versions current in module POMs and `matrix.json` through auto-merging PRs; Renovate keeps the rest current; README/docs artifact tables are generated.
