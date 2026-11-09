@@ -1,7 +1,7 @@
 # Local shortcuts. JAVA_HOME is used as set in the environment (JDK 17 or later builds every module).
 MODULE ?= spark-4.1_2.13
 BRANCH ?= $(shell git rev-parse --abbrev-ref HEAD)
-MINISTACK_IMAGE := ministackorg/ministack:1.5.31
+MINISTACK_IMAGE := ministackorg/ministack:1.5.39
 COMPOSE := docker compose -f docker/docker-compose.yml
 
 .PHONY: test verify package ministack-up ministack-down compat-up compat-down compat matrix docs clean

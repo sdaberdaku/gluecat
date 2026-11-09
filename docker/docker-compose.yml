@@ -4,7 +4,7 @@
 # on port 4566.
 services:
   ministack:
-    image: ministackorg/ministack:1.5.31
+    image: ministackorg/ministack:1.5.39
     container_name: ministack
     ports:
       - "4566:4566"
