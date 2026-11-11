@@ -1,11 +1,19 @@
 # Changelog
 
-## Unreleased
+## 1.1.1 - 2026-11-11
 
 - `CREATE OR REPLACE TABLE` without `AS SELECT` on an existing Delta table replaces it: the table is emptied and
   takes the new schema. It used to commit nothing when the schema was unchanged, keeping the old rows: Delta, given
   a path identifier, finds no catalog table and treats the statement as a create. An existing entry now goes through
   Delta's `REPLACE`.
+- The quick start and README say that `spark.sql.catalog.spark_catalog` must be set whenever Delta is on the
+  classpath: without it Delta refuses to load any Delta table, from any catalog.
+- Built and tested against Spark 4.0.5, 4.1.4 and 4.2.1 (were 4.0.4, 4.1.3 and 4.2.0).
+
+### Upgrading from 1.1.0
+
+- A schema-only `CREATE OR REPLACE TABLE` on an existing Delta table now empties it, as Delta's own `CREATE OR
+  REPLACE` does. Statements that relied on 1.1.0 leaving the table alone should use `CREATE TABLE IF NOT EXISTS`.
 
 ## 1.1.0 - 2026-10-24
 
