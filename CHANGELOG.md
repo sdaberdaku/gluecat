@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `CREATE OR REPLACE TABLE` without `AS SELECT` on an existing Delta table replaces it: the table is emptied and
+  takes the new schema. It used to commit nothing when the schema was unchanged, keeping the old rows: Delta, given
+  a path identifier, finds no catalog table and treats the statement as a create. An existing entry now goes through
+  Delta's `REPLACE`.
+
 ## 1.1.0 - 2026-10-24
 
 - Per-catalog Hadoop options: `spark.sql.catalog.<name>.hadoop.<key>` applies to every table the catalog loads,
