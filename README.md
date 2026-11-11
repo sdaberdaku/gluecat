@@ -99,8 +99,11 @@ spark.sql.catalog.acct_b.client.region                   = eu-central-1
 spark.sql.catalog.acct_b.client.assume-role.arn          = arn:aws:iam::222222222222:role/glue-access
 ```
 
-The first two lines are Delta's usual session configuration; Delta's SQL commands (`MERGE`, `UPDATE`, `DELETE`,
-`OPTIMIZE`, `VACUUM`, ...) need the extension.
+The first two lines are Delta's usual session configuration, and both are required with Delta on the classpath.
+Delta refuses to load any Delta table, from any catalog, while `spark.sql.catalog.spark_catalog` is not set: it fails
+with `DELTA_CONFIGURE_SPARK_SESSION_WITH_EXTENSION_AND_CATALOG`. The check only looks for the key, so `GlueCatalog`
+as `spark_catalog` (below) satisfies it too. Delta's SQL commands (`MERGE`, `UPDATE`, `DELETE`, `OPTIMIZE`, `VACUUM`,
+...) also need the extension.
 
 ```sql
 CREATE DATABASE acct_a.db LOCATION 's3://bucket-a/warehouse/db.db';
