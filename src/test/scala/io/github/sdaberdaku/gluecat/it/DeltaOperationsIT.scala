@@ -92,6 +92,20 @@ abstract class DeltaOperationsIT(mode: Mode) extends SparkIT(mode) {
     assert(ids("cor") == Seq(1))
   }
 
+  test("CREATE OR REPLACE TABLE without AS SELECT empties an existing table and replaces its schema") {
+    val t = tbl("db", "corx")
+    val loc = create("corx")
+    spark.sql(s"INSERT INTO $t VALUES (1, 'a')")
+    // Same schema and location: Delta, finding no catalog table behind the path, treats this as a create.
+    spark.sql(s"CREATE OR REPLACE TABLE $t (id INT, name STRING) USING delta LOCATION '$loc'")
+    assert(ids("corx").isEmpty)
+    spark.sql(s"INSERT INTO $t VALUES (2, 'b')")
+    spark.sql(s"CREATE OR REPLACE TABLE $t (id INT, tag STRING) USING delta")
+    assert(ids("corx").isEmpty)
+    assert(columns("corx") == Seq("id", "tag"))
+    assert(location("corx") == loc)
+  }
+
   test("UPDATE, DELETE, OPTIMIZE, VACUUM, DESCRIBE HISTORY and time travel work by name") {
     val t = tbl("db", "ops")
     create("ops")

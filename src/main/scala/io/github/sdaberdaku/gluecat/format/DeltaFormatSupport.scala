@@ -196,9 +196,17 @@ class DeltaFormatSupport(core: GlueCoreCatalog, catalogName: String, options: Gl
     if (isPath(ident)) return onPath(staging.stageCreateOrReplace(ident, schema, partitions, properties))
     requireHookOff(ident)
     val spec = deltaSpec(properties)
-    val existing = existingLocation(ident, spec)
-    staged(ident, existing.getOrElse(prepareCreate(ident, spec)), spec, replace = existing.isDefined)(
-      staging.stageCreateOrReplace(_, schema, partitions, deltaProps(properties)))
+    existingLocation(ident, spec) match {
+      // Delta finds no catalog table behind a path identifier, so its CREATE OR REPLACE of a table that exists at the
+      // path is a create: without AS SELECT it only checks the schema and commits nothing. An existing entry is a
+      // replace, so it goes through Delta's REPLACE, which truncates the table and replaces its metadata.
+      case Some(location) =>
+        staged(ident, location, spec, replace = true)(
+          staging.stageReplace(_, schema, partitions, deltaProps(properties)))
+      case None =>
+        staged(ident, prepareCreate(ident, spec), spec, replace = false)(
+          staging.stageCreateOrReplace(_, schema, partitions, deltaProps(properties)))
+    }
   }
 
   // ---- alter and refresh ----
