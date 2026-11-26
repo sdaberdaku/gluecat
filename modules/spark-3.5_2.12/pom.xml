@@ -18,7 +18,7 @@
   <properties>
     <scala.version>2.12.21</scala.version>
     <scala.binary.version>2.12</scala.binary.version>
-    <spark.version>3.5.9</spark.version>
+    <spark.version>3.5.10</spark.version>
     <spark.minor>3.5</spark.minor>
     <delta.version>3.3.3</delta.version>
     <java.release>8</java.release>
